@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -15,6 +15,10 @@ import { useTheme } from '@/context/ThemeContext';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useData } from '@/context/DataContext';
 import { useUser } from '@/context/UserContext';
+import { getTemplateById } from '@/utils/templateCatalog';
+import { buildTemplateVariables, resolveTemplateTheme } from '@/utils/templateStyles';
+import { buildTemplateDecorations } from '@/utils/templateDecorations';
+import { resolveTemplateStyleVariant } from '@/utils/templateStyleVariants';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import * as Print from 'expo-print';
@@ -22,12 +26,31 @@ import * as Print from 'expo-print';
 export default function InvoiceDetailScreen() {
   const { colors } = useTheme();
   const { id } = useLocalSearchParams();
-  const { getInvoiceById, recordPayment, deleteInvoice, updateInvoice } = useData();
+  const {
+    getInvoiceById,
+    recordPayment,
+    deleteInvoice,
+    updateInvoice,
+    selectedInvoiceTemplate,
+    templates,
+  } = useData();
   const { user } = useUser();
   
   const [paymentAmount, setPaymentAmount] = useState('');
   const [invoice, setInvoice] = useState(getInvoiceById(id as string));
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+
+  const templateForInvoice = useMemo(() => {
+    if (!invoice) return selectedInvoiceTemplate || getTemplateById('standard');
+    const style = invoice.templateStyle;
+    if (!style) return selectedInvoiceTemplate || getTemplateById('standard');
+    return (
+      templates.find((template) => template.templateStyle === style || template.id === style) ||
+      getTemplateById(style) ||
+      selectedInvoiceTemplate ||
+      getTemplateById('standard')
+    );
+  }, [invoice, templates, selectedInvoiceTemplate]);
 
   useEffect(() => {
     if (id) {
@@ -66,8 +89,8 @@ export default function InvoiceDetailScreen() {
   const daysOverdue = Math.floor(
     (new Date().getTime() - new Date(invoice.dueDate).getTime()) / (1000 * 60 * 60 * 24)
   );
-  const taxAmount = invoice.amount * 0.085;
   const subtotal = invoice.items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
+  const taxAmount = subtotal * 0.085;
   const balanceDue = invoice.amount - invoice.paidAmount;
 
   const handleRecordPayment = async () => {
@@ -127,14 +150,52 @@ export default function InvoiceDetailScreen() {
     const issueDate = new Date(invoice.issueDate).toLocaleDateString('en-US', {
       month: 'long',
       day: 'numeric',
-      year: 'numeric'
+      year: 'numeric',
     });
-    
+
     const dueDate = new Date(invoice.dueDate).toLocaleDateString('en-US', {
       month: 'long',
       day: 'numeric',
-      year: 'numeric'
+      year: 'numeric',
     });
+
+    const resolvedTemplate = templateForInvoice || getTemplateById('standard');
+    const templateTheme = resolveTemplateTheme(resolvedTemplate);
+    const templateVariables = buildTemplateVariables(templateTheme);
+    const templateVariant = resolveTemplateStyleVariant(
+      invoice.templateStyle || resolvedTemplate?.id,
+      resolvedTemplate
+    );
+    const { headerHtml, footerHtml, paddingTop, paddingBottom, pageStyle } =
+      buildTemplateDecorations(templateVariant, {
+        primary: templateTheme.primary,
+        secondary: templateTheme.secondary,
+        accent: templateTheme.accent,
+        text: templateTheme.text,
+      });
+    const pageStyleAttr = pageStyle ? pageStyle : 'background: #ffffff;';
+    const backgroundPattern = templateTheme.hasBackgroundPattern
+      ? 'background-image: radial-gradient(var(--accent) 1px, transparent 1px); background-size: 14px 14px;'
+      : '';
+    const watermarkMarkup = templateTheme.showWatermark
+      ? `<div class="watermark">${templateTheme.watermarkText}</div>`
+      : '';
+    const templateLabel = (resolvedTemplate?.name || resolvedTemplate?.id || 'Template').toUpperCase();
+    const paymentTerms = resolvedTemplate?.paymentTerms || 'net-30';
+    const currency = resolvedTemplate?.currency || 'USD';
+
+    const customerMarkup = invoice.customer
+      ? `
+        <div style="background: ${templateTheme.accent}; padding: 25px; margin: 20px 0 30px 0; border-radius: 8px; border-left: 4px solid ${templateTheme.primary};">
+          <div style="font-weight: bold; margin-bottom: 15px; color: ${templateTheme.primary}; font-size: 16px;">Bill To:</div>
+          <div style="color: #495057;">
+            <div style="font-weight: bold; font-size: 18px; margin-bottom: 8px;">${invoice.customer}</div>
+            ${invoice.customerEmail ? `<div style="margin-bottom: 5px;">${invoice.customerEmail}</div>` : ''}
+            ${invoice.customerPhone ? `<div>${invoice.customerPhone}</div>` : ''}
+          </div>
+        </div>
+      `
+      : '';
 
     return `
       <!DOCTYPE html>
@@ -144,232 +205,132 @@ export default function InvoiceDetailScreen() {
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Invoice ${invoice.number}</title>
         <style>
+          ${templateVariables}
+          * { box-sizing: border-box; }
           body {
-            font-family: 'Helvetica', 'Arial', sans-serif;
-            margin: 40px;
-            color: #333;
+            font-family: ${templateTheme.bodyFont};
+            margin: 0;
+            padding: 0;
+            color: var(--text);
+            background: var(--accent);
+            ${backgroundPattern}
           }
-          .header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            margin-bottom: 40px;
-            border-bottom: 2px solid #4F46E5;
-            padding-bottom: 20px;
+          .page {
+            position: relative;
+            min-height: 100%;
+            padding: 24px;
           }
-          .company-info {
-            text-align: left;
-          }
-          .invoice-info {
-            text-align: right;
-          }
-          .invoice-number {
-            font-size: 24px;
+          .watermark {
+            position: fixed;
+            top: 40%;
+            left: 50%;
+            transform: translate(-50%, -50%) rotate(-20deg);
+            font-size: 64px;
+            color: rgba(0, 0, 0, 0.06);
             font-weight: bold;
-            color: #4F46E5;
-            margin-bottom: 5px;
-          }
-          .status {
-            display: inline-block;
-            padding: 4px 12px;
-            border-radius: 12px;
-            font-size: 12px;
-            font-weight: bold;
-            text-transform: uppercase;
-            margin-top: 5px;
-            color: white;
-          }
-          .status-paid { background-color: #10B981; }
-          .status-pending { background-color: #F59E0B; }
-          .status-overdue { background-color: #EF4444; }
-          .dates {
-            display: flex;
-            justify-content: space-between;
-            margin: 20px 0;
-            padding: 15px;
-            background-color: #F9FAFB;
-            border-radius: 8px;
-          }
-          .date-item {
-            text-align: center;
-          }
-          .date-label {
-            font-size: 12px;
-            color: #6B7280;
-            text-transform: uppercase;
-          }
-          .date-value {
-            font-size: 14px;
-            font-weight: bold;
-            color: #111827;
-          }
-          .customer-info {
-            margin: 30px 0;
-            padding: 20px;
-            background-color: #F9FAFB;
-            border-radius: 8px;
-          }
-          .customer-name {
-            font-size: 18px;
-            font-weight: bold;
-            margin-bottom: 10px;
-            color: #111827;
-          }
-          .items-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin: 30px 0;
-          }
-          .items-table th {
-            background-color: #4F46E5;
-            color: white;
-            padding: 12px;
-            text-align: left;
-            font-weight: bold;
-          }
-          .items-table td {
-            padding: 12px;
-            border-bottom: 1px solid #E5E7EB;
-          }
-          .items-table tr:last-child td {
-            border-bottom: 2px solid #4F46E5;
-          }
-          .summary {
-            margin: 30px 0;
-            padding: 20px;
-            background-color: #F9FAFB;
-            border-radius: 8px;
-          }
-          .summary-row {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 10px;
-          }
-          .total-row {
-            display: flex;
-            justify-content: space-between;
-            font-weight: bold;
-            font-size: 18px;
-            padding-top: 10px;
-            border-top: 2px solid #4F46E5;
-            margin-top: 10px;
-          }
-          .balance-row {
-            display: flex;
-            justify-content: space-between;
-            font-weight: bold;
-            font-size: 20px;
-            color: #EF4444;
-            padding-top: 10px;
-            border-top: 2px solid #EF4444;
-            margin-top: 10px;
-          }
-          .footer {
-            text-align: center;
-            margin-top: 50px;
-            padding-top: 20px;
-            border-top: 1px solid #E5E7EB;
-            color: #6B7280;
-            font-size: 12px;
-          }
-          .notes {
-            margin-top: 30px;
-            padding: 15px;
-            background-color: #FEF3C7;
-            border-radius: 8px;
-            border-left: 4px solid #F59E0B;
-          }
-          .notes-title {
-            font-weight: bold;
-            margin-bottom: 5px;
-            color: #92400E;
+            pointer-events: none;
           }
         </style>
       </head>
       <body>
-        <div class="header">
-          <div class="company-info">
-            <h1 style="color: #4F46E5; margin: 0;">${companyName}</h1>
-            <p style="margin: 5px 0; color: #6B7280;">${companyContactMarkup}</p>
+        <div class="page">
+          <div style="max-width: 800px; margin: 0 auto; position: relative; overflow: hidden; border-radius: 12px; background: white; ${pageStyleAttr}">
+            ${headerHtml}
+            ${footerHtml}
+            <div style="position: relative; z-index: 2; padding: ${paddingTop}px 40px ${paddingBottom}px 40px;">
+              ${watermarkMarkup}
+              <div style="border-bottom: 3px solid ${templateTheme.primary}; padding-bottom: 30px; margin-bottom: 30px;">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 16px;">
+                  <div>
+                    <h1 style="font-size: 32px; font-weight: bold; color: ${templateTheme.primary}; margin: 0 0 10px 0; font-family: ${templateTheme.titleFont};">INVOICE</h1>
+                    <div style="background: ${templateTheme.primary}; color: white; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: bold; display: inline-block;">
+                      ${templateLabel} TEMPLATE
+                    </div>
+                    <div style="color: #6c757d; font-size: 14px; margin-top: 15px;">
+                      <div><strong>Invoice #:</strong> ${invoice.number}</div>
+                      <div><strong>Issue Date:</strong> ${issueDate}</div>
+                      <div><strong>Due Date:</strong> ${dueDate}</div>
+                      <div><strong>Payment Terms:</strong> ${paymentTerms}</div>
+                    </div>
+                  </div>
+                  <div style="text-align: right;">
+                    <div style="font-size: 18px; font-weight: bold; color: ${templateTheme.primary}; margin-bottom: 10px;">
+                      ${companyName}
+                    </div>
+                    <div style="color: #6c757d; font-size: 13px; line-height: 1.4;">
+                      ${companyContactMarkup}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              ${customerMarkup}
+
+              <table style="width: 100%; border-collapse: collapse; margin: 20px 0 30px 0;">
+                <thead>
+                  <tr style="background: ${templateTheme.primary}; color: white;">
+                    <th style="padding: 15px; text-align: left; font-weight: bold; font-size: 14px;">Description</th>
+                    <th style="padding: 15px; text-align: left; font-weight: bold; font-size: 14px;">Qty</th>
+                    <th style="padding: 15px; text-align: left; font-weight: bold; font-size: 14px;">Rate</th>
+                    <th style="padding: 15px; text-align: left; font-weight: bold; font-size: 14px;">Tax</th>
+                    <th style="padding: 15px; text-align: left; font-weight: bold; font-size: 14px;">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${invoice.items
+                    .map((item, index) => {
+                      const lineSubtotal = item.unitPrice * item.quantity;
+                      const lineTax = lineSubtotal * 0.085;
+                      const lineTotal = lineSubtotal + lineTax;
+                      return `
+                        <tr style="${index % 2 === 0 ? `background: ${templateTheme.accent};` : ''} border-bottom: 1px solid #e9ecef;">
+                          <td style="padding: 15px; font-size: 14px; color: #495057;">${item.description}</td>
+                          <td style="padding: 15px; font-size: 14px; color: #495057;">${item.quantity}</td>
+                          <td style="padding: 15px; font-size: 14px; color: #495057;">${currency} ${item.unitPrice.toFixed(2)}</td>
+                          <td style="padding: 15px; font-size: 14px; color: #495057;">8.5%</td>
+                          <td style="padding: 15px; font-size: 14px; font-weight: bold; color: #495057;">${currency} ${lineTotal.toFixed(2)}</td>
+                        </tr>
+                      `;
+                    })
+                    .join('')}
+                </tbody>
+              </table>
+
+              <div style="margin-top: 30px; padding-top: 20px; border-top: 2px solid ${templateTheme.primary}; text-align: right;">
+                <div style="margin-bottom: 10px;">
+                  <span style="color: #6c757d; font-size: 14px;">Subtotal:</span>
+                  <span style="font-weight: bold; color: #495057; margin-left: 20px; font-size: 16px;">${currency} ${subtotal.toFixed(2)}</span>
+                </div>
+                <div style="margin-bottom: 20px;">
+                  <span style="color: #6c757d; font-size: 14px;">Tax:</span>
+                  <span style="font-weight: bold; color: #495057; margin-left: 20px; font-size: 16px;">${currency} ${taxAmount.toFixed(2)}</span>
+                </div>
+                <div>
+                  <span style="color: ${templateTheme.primary}; font-weight: bold; font-size: 20px;">Total:</span>
+                  <span style="color: ${templateTheme.primary}; font-weight: bold; margin-left: 20px; font-size: 24px;">${currency} ${invoice.amount.toFixed(2)}</span>
+                </div>
+              </div>
+
+              ${invoice.notes ? `
+                <div style="margin-top: 30px; padding: 20px; background: ${templateTheme.accent}; border-radius: 8px;">
+                  <div style="color: ${templateTheme.primary}; font-weight: bold; margin-bottom: 15px; font-size: 14px;">Notes</div>
+                  <div style="color: #495057; line-height: 1.6; font-size: 14px; white-space: pre-line;">${invoice.notes}</div>
+                </div>
+              ` : ''}
+
+              ${resolvedTemplate?.terms ? `
+                <div style="margin-top: 20px; padding: 20px; background: ${templateTheme.accent}; border-radius: 8px;">
+                  <div style="color: ${templateTheme.primary}; font-weight: bold; margin-bottom: 15px; font-size: 14px;">Terms & Conditions</div>
+                  <div style="color: #495057; line-height: 1.6; font-size: 13px; white-space: pre-line;">${resolvedTemplate.terms}</div>
+                </div>
+              ` : ''}
+
+              <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #dee2e6; text-align: center; color: #6c757d; font-size: 12px;">
+                <div>Thank you for your business!</div>
+                <div style="margin-top: 5px;">Generated by Ledgerly Invoice System - ${templateLabel} Template</div>
+              </div>
+            </div>
           </div>
-          <div class="invoice-info">
-            <div class="invoice-number">Invoice #${invoice.number}</div>
-            <div class="status status-${invoice.status}">${invoice.status.toUpperCase()}</div>
-          </div>
-        </div>
-        
-        <div class="dates">
-          <div class="date-item">
-            <div class="date-label">Issue Date</div>
-            <div class="date-value">${issueDate}</div>
-          </div>
-          <div class="date-item">
-            <div class="date-label">Due Date</div>
-            <div class="date-value">${dueDate}</div>
-          </div>
-        </div>
-        
-        <div class="customer-info">
-          <div class="customer-name">${invoice.customer}</div>
-          <div>${invoice.customerEmail || ''}</div>
-          <div>${invoice.customerPhone || ''}</div>
-        </div>
-        
-        <table class="items-table">
-          <thead>
-            <tr>
-              <th>Description</th>
-              <th>Quantity</th>
-              <th>Unit Price</th>
-              <th>Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${invoice.items.map(item => `
-              <tr>
-                <td>${item.description}</td>
-                <td>${item.quantity}</td>
-                <td>$${item.unitPrice.toFixed(2)}</td>
-                <td>$${(item.unitPrice * item.quantity).toFixed(2)}</td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-        
-        <div class="summary">
-          <div class="summary-row">
-            <span>Subtotal:</span>
-            <span>$${subtotal.toFixed(2)}</span>
-          </div>
-          <div class="summary-row">
-            <span>Tax (8.5%):</span>
-            <span>$${taxAmount.toFixed(2)}</span>
-          </div>
-          <div class="total-row">
-            <span>Total Amount:</span>
-            <span>$${invoice.amount.toFixed(2)}</span>
-          </div>
-          <div class="summary-row">
-            <span>Amount Paid:</span>
-            <span>$${invoice.paidAmount.toFixed(2)}</span>
-          </div>
-          <div class="balance-row">
-            <span>Balance Due:</span>
-            <span>$${balanceDue.toFixed(2)}</span>
-          </div>
-        </div>
-        
-        ${invoice.notes ? `
-          <div class="notes">
-            <div class="notes-title">Notes:</div>
-            <div>${invoice.notes}</div>
-          </div>
-        ` : ''}
-        
-        <div class="footer">
-          <p>Thank you for your business!<br>
-          Please make payment by the due date to avoid late fees.</p>
-          <p>© ${new Date().getFullYear()} Your Company. All rights reserved.</p>
         </div>
       </body>
       </html>

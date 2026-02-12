@@ -89,6 +89,9 @@ export interface ReportHtmlParams {
   invoiceSummary: InvoiceSummary;
   receiptSummary: ReceiptSummary;
   totalRevenue: number;
+  reportTitle?: string;
+  reportSubtitle?: string;
+  reportTypeLabel?: string;
 }
 
 export const createReportHTML = ({
@@ -98,15 +101,22 @@ export const createReportHTML = ({
   invoiceSummary,
   receiptSummary,
   totalRevenue,
+  reportTitle,
+  reportSubtitle,
+  reportTypeLabel,
 }: ReportHtmlParams): string => {
   const timeStamp = new Date().toLocaleString('en-US');
+  const title = reportTitle || 'Ledgerly Report';
+  const subtitle =
+    reportSubtitle ||
+    `${selectedRangeId.toUpperCase()}${reportTypeLabel ? ` - ${reportTypeLabel}` : ''} - Generated ${timeStamp}`;
 
   return `
     <!DOCTYPE html>
     <html>
     <head>
       <meta charset="UTF-8">
-      <title>Ledgerly Report (${selectedRangeId})</title>
+      <title>${title}</title>
       <style>
         body { font-family: 'Helvetica', Arial, sans-serif; padding: 20px; color: #1f2937; }
         h1 { color: #4f46e5; margin-bottom: 4px; }
@@ -120,8 +130,8 @@ export const createReportHTML = ({
     </head>
     <body>
       <div class="header">
-        <h1>Ledgerly Report</h1>
-        <div class="label">${selectedRangeId.toUpperCase()} · Generated ${timeStamp}</div>
+        <h1>${title}</h1>
+        <div class="label">${subtitle}</div>
         <div class="label">${companyName}</div>
         <div class="label">${companyContact}</div>
       </div>
@@ -159,7 +169,7 @@ export const createReportHTML = ({
           </div>
         </div>
       </div>
-      <div class="footer">Ledgerly · ${new Date().toLocaleDateString('en-US')}</div>
+      <div class="footer">Ledgerly - ${new Date().toLocaleDateString('en-US')}</div>
     </body>
     </html>
   `;

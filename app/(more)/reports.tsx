@@ -1,5 +1,5 @@
 // app/(tabs)/reports.tsx
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   SafeAreaView,
   RefreshControl,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/context/ThemeContext';
@@ -17,6 +18,7 @@ import { useUser } from '@/context/UserContext';
 import { router } from 'expo-router';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
+import { apiGet, apiPost } from '@/services/apiClient';
 import {
   TIME_RANGE_OPTIONS,
   TimeRange,
@@ -34,6 +36,39 @@ interface PaymentMethodData {
   count: number;
 }
 
+type ReportType =
+  | 'summary'
+  | 'sales'
+  | 'revenue'
+  | 'inventory'
+  | 'customer'
+  | 'profit'
+  | 'expenses'
+  | 'performance';
+
+interface ReportHistoryItem {
+  id: string;
+  title: string;
+  type: ReportType;
+  format?: string;
+  status?: string;
+  progress?: number;
+  createdAt?: string;
+  generatedAt?: string;
+  downloads?: number;
+}
+
+const REPORT_TYPES: { id: ReportType; label: string; icon: string }[] = [
+  { id: 'summary', label: 'Summary', icon: 'analytics-outline' },
+  { id: 'sales', label: 'Sales', icon: 'trending-up-outline' },
+  { id: 'revenue', label: 'Revenue', icon: 'cash-outline' },
+  { id: 'inventory', label: 'Inventory', icon: 'cube-outline' },
+  { id: 'customer', label: 'Customers', icon: 'people-outline' },
+  { id: 'profit', label: 'Profit', icon: 'stats-chart-outline' },
+  { id: 'expenses', label: 'Expenses', icon: 'wallet-outline' },
+  { id: 'performance', label: 'Performance', icon: 'rocket-outline' },
+];
+
 export default function ReportsScreen() {
   const { colors } = useTheme();
   const { 
@@ -47,8 +82,11 @@ export default function ReportsScreen() {
   } = useData();
   
   const [selectedRange, setSelectedRange] = useState<TimeRange>('week');
+  const [selectedReportType, setSelectedReportType] = useState<ReportType>('summary');
   const [refreshing, setRefreshing] = useState(false);
   const [currentTime, setCurrentTime] = useState('');
+  const [reportHistory, setReportHistory] = useState<ReportHistoryItem[]>([]);
+  const [reportHistoryLoading, setReportHistoryLoading] = useState(false);
 
   // Update current time
   useEffect(() => {
@@ -68,9 +106,57 @@ export default function ReportsScreen() {
     return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    loadReportHistory();
+  }, [loadReportHistory]);
+
+  const mapReportHistory = useCallback((report: any): ReportHistoryItem => {
+    return {
+      id: report.id || report._id,
+      title: report.title || 'Report',
+      type: report.type || 'summary',
+      format: report.format,
+      status: report.status,
+      progress: report.progress,
+      createdAt: report.createdAt,
+      generatedAt: report.generatedAt,
+      downloads: report.downloads,
+    };
+  }, []);
+
+  const loadReportHistory = useCallback(async () => {
+    try {
+      setReportHistoryLoading(true);
+      const response: any = await apiGet('/api/v1/reports/history');
+      const data = response?.data ?? response ?? [];
+      setReportHistory(data.map(mapReportHistory));
+    } catch (error) {
+      console.error('Failed to load report history:', error);
+    } finally {
+      setReportHistoryLoading(false);
+    }
+  }, [mapReportHistory]);
+
+  const recordReportDownload = useCallback(
+    async (id: string) => {
+      try {
+        const response: any = await apiPost(`/api/v1/reports/history/${id}/download`);
+        const updated = response?.data ?? response;
+        if (updated) {
+          setReportHistory((prev) =>
+            prev.map((report) => (report.id === id ? mapReportHistory(updated) : report))
+          );
+        }
+      } catch (error) {
+        console.error('Failed to record report download:', error);
+      }
+    },
+    [mapReportHistory]
+  );
+
   const onRefresh = async () => {
     setRefreshing(true);
-    await refreshData();
+    await Promise.all([refreshData(), loadReportHistory()]);
     setRefreshing(false);
   };
 
@@ -97,7 +183,51 @@ export default function ReportsScreen() {
 
   const totalRevenue = invoiceStats.total + receiptStats.total;
 
-  const handleExportReport = async () => {
+  const resolveReportMeta = (type: ReportType) =>
+    REPORT_TYPES.find((item) => item.id === type) || REPORT_TYPES[0];
+
+  const buildReportPayload = (type: ReportType) => {
+    const meta = resolveReportMeta(type);
+    const generatedAt = new Date().toISOString();
+    return {
+      title: `${meta.label} Report`,
+      description: `${meta.label} insights for ${currentRangeLabel}`,
+      type,
+      format: 'pdf',
+      filters: { range: selectedRange },
+      options: {
+        includeCharts: true,
+        sections: ['summary', 'charts', 'tables', 'details'],
+      },
+      metadata: {
+        dateRange: selectedRange,
+        rangeLabel: currentRangeLabel,
+        generated: generatedAt,
+      },
+      summary: {
+        totalRevenue,
+        totalInvoices: dashboardStats.totalInvoices,
+        totalReceipts: dashboardStats.totalReceipts,
+        totalCustomers: dashboardStats.totalCustomers,
+        outstandingPayments: dashboardStats.outstandingPayments,
+      },
+      breakdown: {
+        invoiceSummary: invoiceStats,
+        receiptSummary: receiptStats,
+        paymentMethods,
+        topProducts,
+        topCustomers,
+        revenueTrend,
+        profit: profitData,
+      },
+      status: 'completed',
+      progress: 100,
+      generatedAt,
+    };
+  };
+
+  const handleExportReport = async (type: ReportType = selectedReportType) => {
+    const meta = resolveReportMeta(type);
     try {
       const html = createReportHTML({
         companyName,
@@ -106,15 +236,28 @@ export default function ReportsScreen() {
         invoiceSummary: invoiceStats,
         receiptSummary: receiptStats,
         totalRevenue,
+        reportTitle: `${meta.label} Report`,
+        reportTypeLabel: meta.label,
       });
       const { uri } = await Print.printToFileAsync({ html });
       if (await Sharing.isAvailableAsync()) {
         await Sharing.shareAsync(uri, {
           mimeType: 'application/pdf',
-          dialogTitle: 'Export Ledgerly Report',
+          dialogTitle: `Export ${meta.label} Report`,
         });
       } else {
         Alert.alert('Export Ready', `Report saved to ${uri}`);
+      }
+
+      try {
+        const payload = buildReportPayload(type);
+        const response: any = await apiPost('/api/v1/reports/history', payload);
+        const record = response?.data ?? response;
+        if (record) {
+          setReportHistory((prev) => [mapReportHistory(record), ...prev]);
+        }
+      } catch (error) {
+        console.error('Failed to store report history:', error);
       }
     } catch (error) {
       Alert.alert('Export Failed', 'Unable to generate the report PDF. Please try again.');
@@ -276,19 +419,85 @@ export default function ReportsScreen() {
     };
   }, [invoices]);
 
-  // Calculate profit margin (simplified)
-  const calculateProfitMargin = () => {
-    const totalRevenue = dashboardStats.totalRevenue;
-    const estimatedCost = totalRevenue * 0.65; // Assuming 35% profit margin
-    const profit = totalRevenue - estimatedCost;
-    const margin = totalRevenue > 0 ? (profit / totalRevenue) * 100 : 0;
-    
+  const resolveProductCost = (productId?: string, name?: string) => {
+    if (!inventory || inventory.length === 0) return 0;
+    const byId = productId ? inventory.find((item) => item.id === productId) : undefined;
+    if (byId?.costPrice) return byId.costPrice;
+    if (name) {
+      const byName = inventory.find((item) => item.name?.toLowerCase() === name.toLowerCase());
+      if (byName?.costPrice) return byName.costPrice;
+    }
+    return 0;
+  };
+
+  const calculateRevenueAndCost = (startDate?: Date, endDate?: Date) => {
+    const inRange = (dateValue?: string) => {
+      if (!dateValue) return false;
+      const date = new Date(dateValue);
+      if (startDate && date < startDate) return false;
+      if (endDate && date >= endDate) return false;
+      return true;
+    };
+
+    const paidInvoices = invoices.filter((invoice) => {
+      if (invoice.status !== 'paid') return false;
+      if (!startDate && !endDate) return true;
+      return inRange(invoice.issueDate || invoice.createdAt);
+    });
+
+    const completedReceipts = receipts.filter((receipt) => {
+      if (receipt.status !== 'completed') return false;
+      if (!startDate && !endDate) return true;
+      return inRange(receipt.time || receipt.createdAt);
+    });
+
+    const revenue =
+      paidInvoices.reduce((sum, invoice) => sum + invoice.amount, 0) +
+      completedReceipts.reduce((sum, receipt) => sum + receipt.amount, 0);
+
+    const invoiceCost = paidInvoices.reduce((sum, invoice) => {
+      const itemsCost = invoice.items.reduce((itemSum, item) => {
+        const cost = resolveProductCost(item.productId, item.description);
+        return itemSum + cost * item.quantity;
+      }, 0);
+      return sum + itemsCost;
+    }, 0);
+
+    const receiptCost = completedReceipts.reduce((sum, receipt) => {
+      const itemsCost = receipt.items.reduce((itemSum, item) => {
+        const cost = resolveProductCost(undefined, item.name);
+        return itemSum + cost * item.quantity;
+      }, 0);
+      return sum + itemsCost;
+    }, 0);
+
     return {
-      margin: margin.toFixed(1),
-      profit: profit,
-      trend: '+2.3' // Static for now
+      revenue,
+      cost: invoiceCost + receiptCost,
     };
   };
+
+  const profitData = useMemo(() => {
+    const now = new Date();
+    const currentStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const previousStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const previousEnd = currentStart;
+
+    const current = calculateRevenueAndCost(currentStart, now);
+    const previous = calculateRevenueAndCost(previousStart, previousEnd);
+
+    const profit = current.revenue - current.cost;
+    const margin = current.revenue > 0 ? (profit / current.revenue) * 100 : 0;
+    const previousProfit = previous.revenue - previous.cost;
+    const trend =
+      previousProfit !== 0 ? ((profit - previousProfit) / Math.abs(previousProfit)) * 100 : 0;
+
+    return {
+      margin: margin.toFixed(1),
+      profit,
+      trend: trend >= 0 ? `+${trend.toFixed(1)}` : trend.toFixed(1),
+    };
+  }, [invoices, receipts, inventory]);
 
   // Calculate average transaction value
   const calculateAverageTransaction = () => {
@@ -301,16 +510,25 @@ export default function ReportsScreen() {
     };
   };
 
-  // Generate revenue trend data
-  const generateRevenueTrend = () => {
-    const labels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
-    const values = [2500, 3200, 2800, 4200, 3800, 4500];
-    return { labels, values };
-  };
-
-  const profitData = calculateProfitMargin();
   const transactionData = calculateAverageTransaction();
-  const revenueTrend = generateRevenueTrend();
+
+  const revenueTrend = useMemo(() => {
+    const now = new Date();
+    const labels: string[] = [];
+    const values: number[] = [];
+
+    for (let i = 5; i >= 0; i -= 1) {
+      const monthStart = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const monthEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 1);
+      const revenue = calculateRevenueAndCost(monthStart, monthEnd).revenue;
+      labels.push(monthStart.toLocaleString('en-US', { month: 'short' }));
+      values.push(revenue);
+    }
+
+    return { labels, values };
+  }, [invoices, receipts, inventory]);
+
+  const maxTrendValue = Math.max(1, ...revenueTrend.values);
 
   const handleViewOutstandingDetails = () => {
     router.push('/(tabs)/invoices?filter=overdue');
@@ -400,6 +618,52 @@ export default function ReportsScreen() {
             </Text>
           </View>
 
+        {/* Report Types */}
+        <View style={styles.reportTypeSection}>
+          <View style={styles.sectionHeader}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Report Types</Text>
+            <TouchableOpacity onPress={() => handleExportReport(selectedReportType)}>
+              <Text style={[styles.viewAllText, { color: colors.primary500 }]}>Generate</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.reportTypeScroll}
+          >
+            {REPORT_TYPES.map((type) => {
+              const isActive = selectedReportType === type.id;
+              return (
+                <TouchableOpacity
+                  key={type.id}
+                  style={[
+                    styles.reportTypeChip,
+                    {
+                      backgroundColor: isActive ? colors.primary500 : colors.surface,
+                      borderColor: isActive ? colors.primary500 : colors.border,
+                    },
+                  ]}
+                  onPress={() => setSelectedReportType(type.id)}
+                >
+                  <Ionicons
+                    name={type.icon as any}
+                    size={16}
+                    color={isActive ? 'white' : colors.text}
+                  />
+                  <Text
+                    style={[
+                      styles.reportTypeText,
+                      { color: isActive ? 'white' : colors.text },
+                    ]}
+                  >
+                    {type.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+
         {/* Total Revenue */}
         <View style={[styles.statCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <View style={styles.statHeader}>
@@ -411,7 +675,7 @@ export default function ReportsScreen() {
           </View>
           <Text style={[styles.statValue, { color: colors.text }]}>${dashboardStats.totalRevenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
           <Text style={[styles.statSubtitle, { color: colors.textTertiary }]}>
-            {dashboardStats.todayReceipts} sales today • ${dashboardStats.receiptsRevenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {dashboardStats.todayReceipts} sales today - ${dashboardStats.receiptsRevenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </Text>
         </View>
 
@@ -420,7 +684,7 @@ export default function ReportsScreen() {
           <View style={styles.statHeader}>
             <Text style={[styles.statTitle, { color: colors.text }]}>Outstanding Payments</Text>
             <TouchableOpacity onPress={handleViewOutstandingDetails}>
-              <Text style={[styles.viewDetailsText, { color: colors.primary500 }]}>View Details →</Text>
+              <Text style={[styles.viewDetailsText, { color: colors.primary500 }]}>View Details -></Text>
             </TouchableOpacity>
           </View>
           <Text style={[styles.statValue, { color: colors.text }]}>${outstandingPaymentsByAge.total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
@@ -462,7 +726,9 @@ export default function ReportsScreen() {
               <Ionicons name="trending-up" size={20} color={colors.success} />
             </View>
             <Text style={[styles.gridValue, { color: colors.text }]}>{profitData.margin}%</Text>
-            <Text style={[styles.gridSubtitle, { color: colors.textTertiary }]}>+{profitData.trend}% vs previous period</Text>
+            <Text style={[styles.gridSubtitle, { color: colors.textTertiary }]}>
+              {profitData.trend}% vs previous period
+            </Text>
             <Text style={[styles.gridProfit, { color: colors.success }]}>
               ${profitData.profit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} profit
             </Text>
@@ -478,7 +744,7 @@ export default function ReportsScreen() {
               Avg: ${transactionData.avgValue} per transaction
             </Text>
             <Text style={[styles.gridTransaction, { color: colors.primary500 }]}>
-              {dashboardStats.totalReceipts} receipts • {dashboardStats.totalInvoices} invoices
+              {dashboardStats.totalReceipts} receipts - {dashboardStats.totalInvoices} invoices
             </Text>
           </View>
         </View>
@@ -497,7 +763,7 @@ export default function ReportsScreen() {
                     style={[
                       styles.chartBar,
                       {
-                        height: `${(value / Math.max(...revenueTrend.values)) * 100}%`,
+                        height: `${(value / maxTrendValue) * 100}%`,
                         backgroundColor: colors.primary500,
                       }
                     ]}
@@ -509,8 +775,8 @@ export default function ReportsScreen() {
               ))}
             </View>
             <View style={styles.chartYAxis}>
-              <Text style={[styles.chartYLabel, { color: colors.textTertiary }]}>${Math.max(...revenueTrend.values).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</Text>
-              <Text style={[styles.chartYLabel, { color: colors.textTertiary }]}>${(Math.max(...revenueTrend.values) / 2).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</Text>
+              <Text style={[styles.chartYLabel, { color: colors.textTertiary }]}>${maxTrendValue.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</Text>
+              <Text style={[styles.chartYLabel, { color: colors.textTertiary }]}>${(maxTrendValue / 2).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</Text>
               <Text style={[styles.chartYLabel, { color: colors.textTertiary }]}>$0</Text>
             </View>
           </View>
@@ -575,7 +841,7 @@ export default function ReportsScreen() {
           <View style={styles.sectionHeader}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>Top Products</Text>
             <TouchableOpacity onPress={handleViewTopProducts}>
-              <Text style={[styles.viewAllText, { color: colors.primary500 }]}>View All →</Text>
+              <Text style={[styles.viewAllText, { color: colors.primary500 }]}>View All -></Text>
             </TouchableOpacity>
           </View>
           
@@ -608,7 +874,7 @@ export default function ReportsScreen() {
           <View style={styles.sectionHeader}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>Top Customers</Text>
             <TouchableOpacity onPress={handleViewTopCustomers}>
-              <Text style={[styles.viewAllText, { color: colors.primary500 }]}>View All →</Text>
+              <Text style={[styles.viewAllText, { color: colors.primary500 }]}>View All -></Text>
             </TouchableOpacity>
           </View>
           
@@ -640,6 +906,92 @@ export default function ReportsScreen() {
           ) : (
             <Text style={[styles.emptyDataText, { color: colors.textTertiary }]}>
               No customer data available
+            </Text>
+          )}
+        </View>
+
+        {/* Generated Reports */}
+        <View style={[styles.statCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <View style={styles.sectionHeader}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Generated Reports</Text>
+            <TouchableOpacity onPress={loadReportHistory}>
+              <Text style={[styles.viewAllText, { color: colors.primary500 }]}>Refresh</Text>
+            </TouchableOpacity>
+          </View>
+
+          {reportHistoryLoading ? (
+            <View style={styles.reportHistoryLoading}>
+              <ActivityIndicator color={colors.primary500} />
+              <Text style={[styles.emptyDataText, { color: colors.textTertiary }]}>
+                Loading reports...
+              </Text>
+            </View>
+          ) : reportHistory.length > 0 ? (
+            reportHistory.slice(0, 5).map((report) => {
+              const meta = REPORT_TYPES.find((item) => item.id === report.type);
+              const label = meta?.label || report.type;
+              const generatedAt = report.generatedAt || report.createdAt;
+              return (
+                <View key={report.id} style={[styles.reportHistoryItem, { borderBottomColor: colors.border }]}>
+                  <View style={styles.reportHistoryInfo}>
+                    <Text style={[styles.reportHistoryTitle, { color: colors.text }]} numberOfLines={1}>
+                      {report.title || `${label} Report`}
+                    </Text>
+                    <Text style={[styles.reportHistoryMeta, { color: colors.textTertiary }]}>
+                      {label} - {generatedAt ? new Date(generatedAt).toLocaleDateString('en-US') : 'Recent'}
+                    </Text>
+                    <View style={styles.reportHistoryBadges}>
+                      {report.status && (
+                        <View
+                          style={[
+                            styles.statusBadge,
+                            {
+                              backgroundColor:
+                                report.status === 'completed'
+                                  ? colors.success + '20'
+                                  : colors.warning + '20',
+                            },
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.statusBadgeText,
+                              { color: report.status === 'completed' ? colors.success : colors.warning },
+                            ]}
+                          >
+                            {report.status.toUpperCase()}
+                          </Text>
+                        </View>
+                      )}
+                      {typeof report.downloads === 'number' && (
+                        <View style={[styles.statusBadge, { backgroundColor: colors.primary100 }]}>
+                          <Text style={[styles.statusBadgeText, { color: colors.primary500 }]}>
+                            {report.downloads} downloads
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  </View>
+                  <TouchableOpacity
+                    style={[styles.reportHistoryAction, { backgroundColor: colors.primary100 }]}
+                    onPress={async () => {
+                      const reportType = REPORT_TYPES.some((item) => item.id === report.type)
+                        ? (report.type as ReportType)
+                        : selectedReportType;
+                      await handleExportReport(reportType);
+                      if (report.id) {
+                        recordReportDownload(report.id);
+                      }
+                    }}
+                  >
+                    <Ionicons name="download-outline" size={18} color={colors.primary500} />
+                  </TouchableOpacity>
+                </View>
+              );
+            })
+          ) : (
+            <Text style={[styles.emptyDataText, { color: colors.textTertiary }]}>
+              No generated reports yet.
             </Text>
           )}
         </View>
@@ -1092,6 +1444,73 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     textAlign: 'center',
+  },
+  reportTypeSection: {
+    marginBottom: 20,
+    paddingHorizontal: 20,
+  },
+  reportTypeScroll: {
+    paddingVertical: 4,
+  },
+  reportTypeChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 999,
+    borderWidth: 1,
+    marginRight: 10,
+  },
+  reportTypeText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  reportHistoryLoading: {
+    paddingVertical: 12,
+    alignItems: 'center',
+    gap: 8,
+  },
+  reportHistoryItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+  },
+  reportHistoryInfo: {
+    flex: 1,
+    marginRight: 12,
+  },
+  reportHistoryTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  reportHistoryMeta: {
+    fontSize: 12,
+    marginBottom: 6,
+  },
+  reportHistoryBadges: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  reportHistoryAction: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+  },
+  statusBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
   },
   spacer: {
     height: 40,

@@ -1,7 +1,7 @@
 // contexts/UserContext.tsx
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
 import * as authService from '../services/authServices';
-import { User } from '../services/authServices'
+import { User, RegisterPayload } from '../services/authServices';
 import { showMessage } from 'react-native-flash-message';
 
 // Create context
@@ -11,7 +11,7 @@ interface UserContextType {
   isAuthenticated: boolean;
   loginUser: (email: string, password: string) => Promise<User | null>;
   logoutUser: () => Promise<void>;
-  registerUser: (userData: Omit<User, 'id' | 'role' | 'createdAt' | 'updatedAt'>) => Promise<User | null>;
+  registerUser: (userData: RegisterPayload) => Promise<User | null>;
   updateProfile: (updates: Partial<User>) => Promise<User | null>;
   isAdmin: () => Promise<boolean>;
   checkAuth: () => Promise<boolean>;
@@ -82,7 +82,7 @@ export const UserProvider: React.FC<UserProviderProps> = ({ children }) => {
   }, []);
 
   // Register function using authService (NO auto-login)
-  const registerUser = useCallback(async (userData: Omit<User, 'id' | 'role' | 'createdAt' | 'updatedAt'>): Promise<User | null> => {
+  const registerUser = useCallback(async (userData: RegisterPayload): Promise<User | null> => {
     setLoading(true);
 
     const result = await authService.registerUser(userData);

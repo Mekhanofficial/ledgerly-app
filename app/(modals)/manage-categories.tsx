@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -15,58 +15,64 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/context/ThemeContext';
 import { router } from 'expo-router';
 import { useData } from '@/context/DataContext';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width, height } = Dimensions.get('window');
 const isTablet = width >= 768;
 const isSmallScreen = height <= 667;
 
-const DEFAULT_CATEGORIES = ['Electronics', 'Furniture', 'Office Supplies', 'Software', 'Services', 'Hardware', 'Stationery'];
-
 export default function ManageCategoriesScreen() {
   const { colors, isDark } = useTheme();
-  const { inventory, refreshData, loading } = useData();
-  const [categories, setCategories] = useState([]);
+  const {
+    inventory,
+    categories,
+    createCategory,
+    updateCategory,
+    deleteCategory,
+    refreshData,
+    loading,
+  } = useData();
   const [newCategory, setNewCategory] = useState('');
-  const [customCategories, setCustomCategories] = useState<string[]>([]);
   const [editingCategory, setEditingCategory] = useState(null);
   const [editText, setEditText] = useState('');
   const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
-    loadCustomCategories();
-  }, []);
+  const categoriesWithCounts = useMemo(() => {
+    const categoryTotals = new Map<string, { id?: string; name: string; count: number; value: number; editable: boolean }>();
 
-  const loadCustomCategories = async () => {
-    try {
-      const stored = await AsyncStorage.getItem('custom_categories');
-      if (stored) {
-        setCustomCategories(JSON.parse(stored));
+    categories.forEach((category) => {
+      categoryTotals.set(category.id, {
+        id: category.id,
+        name: category.name,
+        count: 0,
+        value: 0,
+        editable: true,
+      });
+    });
+
+    inventory.forEach((item) => {
+      const match = categories.find(
+        (category) => category.id === item.categoryId || category.name === item.category
+      );
+      const key = match?.id || item.category || 'uncategorized';
+      const name = match?.name || item.category || 'Uncategorized';
+
+      if (!categoryTotals.has(key)) {
+        categoryTotals.set(key, {
+          id: match?.id,
+          name,
+          count: 0,
+          value: 0,
+          editable: Boolean(match?.id),
+        });
       }
-    } catch (error) {
-      console.error('Failed to load custom categories:', error);
-    }
-  };
 
-  // Extract unique categories from inventory
-  useEffect(() => {
-    extractCategories();
-  }, [inventory, customCategories]);
+      const current = categoryTotals.get(key);
+      current.count += 1;
+      current.value += item.price * item.quantity;
+    });
 
-  const extractCategories = () => {
-    const inventoryCategories = inventory.map(item => item.category).filter(Boolean);
-    const uniqueCategories = [...new Set([...DEFAULT_CATEGORIES, ...inventoryCategories, ...customCategories])].sort();
-    
-    // Add counts
-    const categoriesWithCounts = uniqueCategories.map(category => ({
-      name: category,
-      count: inventory.filter(item => item.category === category).length,
-      value: inventory
-        .filter(item => item.category === category)
-        .reduce((sum, item) => sum + (item.price * item.quantity), 0),
-    }));
-    setCategories(categoriesWithCounts);
-  };
+    return Array.from(categoryTotals.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [categories, inventory]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -80,47 +86,59 @@ export default function ManageCategoriesScreen() {
       return;
     }
 
-    if (categories.find(c => c.name.toLowerCase() === newCategory.toLowerCase())) {
+    if (categories.find((c) => c.name.toLowerCase() === newCategory.trim().toLowerCase())) {
       Alert.alert('Error', 'Category already exists');
       return;
     }
 
-    const newCatName = newCategory.trim();
-    const updatedCustom = [...customCategories, newCatName];
-    setCustomCategories(updatedCustom);
-    setNewCategory('');
-    
     try {
-      await AsyncStorage.setItem('custom_categories', JSON.stringify(updatedCustom));
+      await createCategory(newCategory.trim());
       Alert.alert('Success', 'Category added successfully');
+      setNewCategory('');
     } catch (error) {
       Alert.alert('Error', 'Failed to save category');
     }
   };
 
-  const handleEditCategory = (category) => {
+  const handleEditCategory = async (category) => {
     if (!editText.trim()) {
       Alert.alert('Error', 'Please enter a category name');
       return;
     }
 
-    if (categories.find(c => c.name.toLowerCase() === editText.toLowerCase() && c.name !== category.name)) {
+    if (!category?.id) {
+      Alert.alert('Not Supported', 'This category comes from product data. Edit the products instead.');
+      return;
+    }
+
+    if (
+      categories.find(
+        (c) => c.name.toLowerCase() === editText.trim().toLowerCase() && c.id !== category.id
+      )
+    ) {
       Alert.alert('Error', 'Category already exists');
       return;
     }
 
-    const updatedCategories = categories.map(cat => 
-      cat.name === category.name ? { ...cat, name: editText.trim() } : cat
-    );
-
-    setCategories(updatedCategories);
-    setEditingCategory(null);
-    setEditText('');
-    Alert.alert('Success', 'Category updated successfully');
+    try {
+      await updateCategory(category.id, { name: editText.trim() });
+      setEditingCategory(null);
+      setEditText('');
+      Alert.alert('Success', 'Category updated successfully');
+    } catch (error) {
+      Alert.alert('Error', 'Failed to update category');
+    }
   };
 
   const handleDeleteCategory = (category) => {
-    const productsInCategory = inventory.filter(item => item.category === category.name);
+    if (!category?.id) {
+      Alert.alert('Not Supported', 'This category comes from product data. Edit the products instead.');
+      return;
+    }
+
+    const productsInCategory = inventory.filter(
+      (item) => item.categoryId === category.id || item.category === category.name
+    );
     
     if (productsInCategory.length > 0) {
       Alert.alert(
@@ -128,11 +146,6 @@ export default function ManageCategoriesScreen() {
         `This category contains ${productsInCategory.length} product(s). Please reassign or delete these products first.`,
         [{ text: 'OK' }]
       );
-      return;
-    }
-
-    if (DEFAULT_CATEGORIES.includes(category.name)) {
-      Alert.alert('Error', 'Cannot delete default categories');
       return;
     }
 
@@ -145,13 +158,14 @@ export default function ManageCategoriesScreen() {
           text: 'Delete',
           style: 'destructive',
           onPress: async () => {
-            const updatedCustom = customCategories.filter(c => c !== category.name);
-            setCustomCategories(updatedCustom);
             try {
-              await AsyncStorage.setItem('custom_categories', JSON.stringify(updatedCustom));
+              if (category.id && typeof category.id === 'string' && category.id.length > 0) {
+                await deleteCategory(category.id);
+              }
               Alert.alert('Success', 'Category deleted successfully');
             } catch (error) {
               console.error('Failed to delete category:', error);
+              Alert.alert('Error', 'Failed to delete category');
             }
           },
         },
@@ -252,11 +266,11 @@ export default function ManageCategoriesScreen() {
           <View style={styles.sectionHeader}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>All Categories</Text>
             <Text style={[styles.categoryCount, { color: colors.textTertiary }]}>
-              {categories.length} categories
+              {categoriesWithCounts.length} categories
             </Text>
           </View>
 
-          {categories.length === 0 ? (
+          {categoriesWithCounts.length === 0 ? (
             <View style={styles.emptyState}>
               <Ionicons name="grid-outline" size={isSmallScreen ? 48 : 60} color={colors.textTertiary} />
               <Text style={[styles.emptyStateText, { color: colors.text }]}>No categories yet</Text>
@@ -266,7 +280,7 @@ export default function ManageCategoriesScreen() {
             </View>
           ) : (
             <View style={styles.categoriesGrid}>
-              {categories.map((category, index) => (
+              {categoriesWithCounts.map((category, index) => (
                 <View key={category.name} style={[
                   styles.categoryCard,
                   { 
@@ -289,6 +303,10 @@ export default function ManageCategoriesScreen() {
                     <View style={styles.categoryActions}>
                       <TouchableOpacity 
                         onPress={() => {
+                          if (!category?.id) {
+                            Alert.alert('Not Supported', 'This category comes from product data. Edit the products instead.');
+                            return;
+                          }
                           setEditingCategory(category.name);
                           setEditText(category.name);
                         }}
@@ -393,7 +411,7 @@ export default function ManageCategoriesScreen() {
                           color: colors.primary500,
                           fontSize: isSmallScreen ? 11 : 12
                         }]}>
-                          View Products →
+                          View Products ->
                         </Text>
                       </TouchableOpacity>
                     </>

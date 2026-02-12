@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -22,12 +22,11 @@ const isSmallScreen = height <= 667;
 
 type StockStatus = 'in-stock' | 'low-stock' | 'out-of-stock';
 
-const categories = ['All Categories', 'Electronics', 'Furniture', 'Office Supplies'];
 const FALLBACK_PRODUCT_IMAGE = 'https://images.unsplash.com/photo-1512499617640-c2f999098a00?auto=format&fit=crop&w=500&q=80';
 
 export default function InventoryScreen() {
   const { colors, isDark } = useTheme();
-  const { inventory, dashboardStats, refreshData, loading, deleteProduct } = useData();
+  const { inventory, categories, dashboardStats, refreshData, loading, deleteProduct } = useData();
   const [selectedCategory, setSelectedCategory] = useState('All Categories');
   const [selectedStatus, setSelectedStatus] = useState<string>('All Status');
   const [refreshing, setRefreshing] = useState(false);
@@ -57,6 +56,11 @@ export default function InventoryScreen() {
       default: return status;
     }
   };
+
+  const categoryOptions = useMemo(
+    () => ['All Categories', ...categories.map((category) => category.name)],
+    [categories]
+  );
 
   const filteredItems = inventory.filter(item => {
     const categoryMatch = selectedCategory === 'All Categories' || item.category === selectedCategory;
@@ -392,7 +396,7 @@ export default function InventoryScreen() {
               style={styles.filterScroll}
               contentContainerStyle={styles.filterScrollContent}
             >
-              {categories.map((category) => {
+              {categoryOptions.map((category) => {
                 const count = category === 'All Categories' 
                   ? inventory.length 
                   : inventory.filter(item => item.category === category).length;
@@ -551,7 +555,7 @@ export default function InventoryScreen() {
                         fontSize: getResponsiveFontSize(13)
                       }
                     ]}>
-                      {item.quantity} units
+                      Remaining: {item.quantity} units
                     </Text>
                     <Text style={[
                       styles.quantityValue, 

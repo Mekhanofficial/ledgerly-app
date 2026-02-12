@@ -17,9 +17,14 @@ import * as Sharing from 'expo-sharing';
 import { router } from 'expo-router';
 import Constants from 'expo-constants';
 import ModalHeader from '@/components/ModalHeader';
+import { useData } from '@/context/DataContext';
+import * as Print from 'expo-print';
+import { useUser } from '@/context/UserContext';
 
 export default function SettingsScreen() {
   const { colors, isDark, theme, setTheme, toggleTheme } = useTheme();
+  const { customers, inventory, invoices, receipts, categories } = useData();
+  const { logoutUser } = useUser();
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [biometricEnabled, setBiometricEnabled] = useState(true);
   const [autoBackupEnabled, setAutoBackupEnabled] = useState(true);
@@ -97,18 +102,105 @@ export default function SettingsScreen() {
 
   const exportData = async (format: string) => {
     try {
-      // In a real app, you would generate actual data files
-      const dummyData = `Ledgerly Export - ${new Date().toLocaleDateString()}\n\n`;
+      const exportPayload = {
+        exportedAt: new Date().toISOString(),
+        customers,
+        products: inventory,
+        invoices,
+        receipts,
+        categories,
+      };
+
+      const escapeCsv = (value: string) => {
+        if (value.includes('"') || value.includes(',') || value.includes('\n')) {
+          return `"${value.replace(/"/g, '""')}"`;
+        }
+        return value;
+      };
+
+      const toCsv = (rows: Record<string, any>[], columns: string[]) => {
+        const header = columns.join(',');
+        const body = rows
+          .map((row) =>
+            columns
+              .map((key) => {
+                const raw = row[key];
+                const value = raw === null || raw === undefined ? '' : String(raw);
+                return escapeCsv(value);
+              })
+              .join(',')
+          )
+          .join('\n');
+        return `${header}\n${body}`;
+      };
+
+      const csvSections = [
+        {
+          title: 'Customers',
+          columns: ['id', 'name', 'email', 'phone', 'company', 'outstanding', 'totalSpent'],
+          rows: customers,
+        },
+        {
+          title: 'Products',
+          columns: ['id', 'name', 'sku', 'price', 'quantity', 'category'],
+          rows: inventory,
+        },
+        {
+          title: 'Invoices',
+          columns: ['id', 'number', 'customer', 'amount', 'status', 'issueDate', 'dueDate'],
+          rows: invoices,
+        },
+        {
+          title: 'Receipts',
+          columns: ['id', 'number', 'customer', 'amount', 'status', 'time'],
+          rows: receipts,
+        },
+        {
+          title: 'Categories',
+          columns: ['id', 'name', 'description'],
+          rows: categories,
+        },
+      ];
+
+      const csvContent = csvSections
+        .map((section) => `# ${section.title}\n${toCsv(section.rows, section.columns)}`)
+        .join('\n\n');
+
       const fileName = `ledgerly_export_${Date.now()}.${format}`;
-      const fileUri = FileSystem.cacheDirectory + fileName;
-      
-      await FileSystem.writeAsStringAsync(fileUri, dummyData);
-      
+      let fileUri = FileSystem.cacheDirectory + fileName;
+
+      if (format === 'pdf') {
+        const html = `
+          <html>
+            <head>
+              <meta charset="UTF-8" />
+              <style>
+                body { font-family: Arial, sans-serif; margin: 24px; color: #111827; }
+                h2 { margin-top: 24px; }
+                pre { white-space: pre-wrap; font-size: 12px; }
+              </style>
+            </head>
+            <body>
+              <h1>Ledgerly Export</h1>
+              <p>Generated at: ${exportPayload.exportedAt}</p>
+              <pre>${JSON.stringify(exportPayload, null, 2)}</pre>
+            </body>
+          </html>
+        `;
+        const { uri } = await Print.printToFileAsync({ html });
+        fileUri = uri;
+      } else {
+        await FileSystem.writeAsStringAsync(fileUri, csvContent);
+      }
+
       if (await Sharing.isAvailableAsync()) {
         await Sharing.shareAsync(fileUri, {
-          mimeType: format === 'pdf' ? 'application/pdf' : 
-                   format === 'csv' ? 'text/csv' : 
-                   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          mimeType:
+            format === 'pdf'
+              ? 'application/pdf'
+              : format === 'csv'
+              ? 'text/csv'
+              : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
           dialogTitle: 'Export Ledgerly Data',
         });
       }
@@ -140,10 +232,12 @@ export default function SettingsScreen() {
         {
           text: 'Sign Out',
           style: 'destructive',
-          onPress: () => {
-            // Handle logout logic
-            console.log('User logged out');
-            router.replace('/(auth)/login');
+          onPress: async () => {
+            try {
+              await logoutUser();
+            } finally {
+              router.replace('/(auth)/login');
+            }
           },
         },
       ]
@@ -216,6 +310,13 @@ export default function SettingsScreen() {
           label: 'Payment Methods',
           description: 'Manage your payment options',
           action: () => router.push('/(modals)/settings/payment-method'),
+          showChevron: true,
+        },
+        {
+          icon: 'color-palette-outline',
+          label: 'Templates',
+          description: 'Invoice and receipt styles',
+          action: () => router.push('/(modals)/settings/templates'),
           showChevron: true,
         },
         {

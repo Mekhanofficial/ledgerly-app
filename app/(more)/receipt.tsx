@@ -53,20 +53,22 @@ export default function ReceiptsScreen() {
     }
   }, [searchQuery, receipts]);
 
-  const getPaymentMethodIcon = (method: 'cash' | 'card' | 'transfer') => {
+  const getPaymentMethodIcon = (method: 'cash' | 'card' | 'transfer' | 'mobile') => {
     switch (method) {
       case 'cash': return 'cash-outline';
       case 'card': return 'card-outline';
       case 'transfer': return 'swap-horizontal-outline';
+      case 'mobile': return 'phone-portrait-outline';
       default: return 'card-outline';
     }
   };
 
-  const getPaymentMethodColor = (method: 'cash' | 'card' | 'transfer') => {
+  const getPaymentMethodColor = (method: 'cash' | 'card' | 'transfer' | 'mobile') => {
     switch (method) {
       case 'cash': return colors.success;
       case 'card': return colors.primary500;
       case 'transfer': return colors.warning;
+      case 'mobile': return colors.info || colors.primary400;
       default: return colors.primary500;
     }
   };

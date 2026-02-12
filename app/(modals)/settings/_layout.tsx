@@ -34,6 +34,13 @@ export default function SettingsLayout() {
         }} 
       />
       <Stack.Screen 
+        name="templates" 
+        options={{ 
+          title: 'Templates',
+          presentation: 'card',
+        }} 
+      />
+      <Stack.Screen 
         name="notification-preference" 
         options={{ 
           title: 'Notification Preferences',

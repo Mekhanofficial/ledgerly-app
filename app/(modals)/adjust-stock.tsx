@@ -49,7 +49,7 @@ export default function AdjustStockScreen() {
       return false;
     }
     if (adjustType === 'remove' && product && parsedAmount > product.quantity) {
-      Alert.alert('Validation Error', 'Cannot remove more than current stock.');
+      Alert.alert('Validation Error', 'Cannot remove more than available stock.');
       return false;
     }
     return true;
@@ -97,7 +97,7 @@ export default function AdjustStockScreen() {
             <Text style={[styles.productName, { color: colors.text }]}>{product?.name}</Text>
             <Text style={[styles.sku, { color: colors.textTertiary }]}>SKU: {product?.sku}</Text>
             <View style={styles.quantityRow}>
-              <Text style={[styles.quantityLabel, { color: colors.textTertiary }]}>Current Stock</Text>
+              <Text style={[styles.quantityLabel, { color: colors.textTertiary }]}>Available Stock</Text>
               <Text style={[styles.quantityValue, { color: colors.text }]}>{product?.quantity ?? 0}</Text>
             </View>
           </View>

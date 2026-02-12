@@ -16,16 +16,14 @@ import { router } from 'expo-router';
 import { useData } from '@/context/DataContext';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { showMessage } from 'react-native-flash-message';
 
 
 const UNITS = ['Piece', 'Kilogram', 'Liter', 'Meter', 'Box', 'Package', 'Set'];
-const DEFAULT_CATEGORIES = ['Electronics', 'Furniture', 'Office Supplies', 'Software', 'Services', 'Hardware', 'Stationery'];
 
 export default function AddProductScreen() {
   const { colors } = useTheme();
-  const { createProduct, inventory } = useData();
+  const { createProduct, createCategory, categories } = useData();
   const [productName, setProductName] = useState('');
   const [sku, setSku] = useState('');
   const [category, setCategory] = useState('');
@@ -38,34 +36,16 @@ export default function AddProductScreen() {
   const [barcode, setBarcode] = useState('');
   const [supplierName, setSupplierName] = useState('');
   const [tags, setTags] = useState('');
-  const [image, setImage] = useState(null);
+  const [image, setImage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [showUnitModal, setShowUnitModal] = useState(false);
   const [newCategory, setNewCategory] = useState('');
-  const [customCategories, setCustomCategories] = useState<string[]>([]);
 
-  useEffect(() => {
-    loadCustomCategories();
-  }, []);
-
-  const loadCustomCategories = async () => {
-    try {
-      const stored = await AsyncStorage.getItem('custom_categories');
-      if (stored) {
-        setCustomCategories(JSON.parse(stored));
-      }
-    } catch (error) {
-      console.error('Failed to load custom categories:', error);
-    }
-  };
-
-  const categories = useMemo(() => {
-    const inventoryCategories = inventory.map(item => item.category).filter(Boolean);
-    const allCategories = [...DEFAULT_CATEGORIES, ...inventoryCategories, ...customCategories];
-    // Return unique sorted categories
-    return Array.from(new Set(allCategories)).sort();
-  }, [inventory, customCategories]);
+  const categoryOptions = useMemo(
+    () => categories.map((category) => category.name).sort(),
+    [categories]
+  );
 
   const generateSKU = () => {
     if (productName) {
@@ -88,38 +68,56 @@ export default function AddProductScreen() {
   };
 
   const pickImage = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    
-    if (status !== 'granted') {
-      Alert.alert('Permission Required', 'Sorry, we need camera roll permissions to select images.');
-      return;
-    }
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Sorry, we need camera roll permissions to select images.');
+        return;
+      }
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 1,
-    });
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.7,
+        base64: true,
+      });
 
-    if (!result.canceled) {
-      setImage(result.assets[0].uri);
+      const asset = result.assets?.[0];
+      if (result.canceled || !asset?.uri) {
+        return;
+      }
+
+      if (asset.base64) {
+        const mimeType = asset.mimeType && asset.mimeType.startsWith('image/')
+          ? asset.mimeType
+          : 'image/jpeg';
+        setImage(`data:${mimeType};base64,${asset.base64}`);
+      } else {
+        setImage(asset.uri);
+      }
+    } catch (error) {
+      console.error('Image picker error:', error);
+      showMessage({
+        message: 'Error',
+        description: 'Failed to pick image',
+        type: 'danger',
+        icon: 'danger',
+      });
     }
   };
 
   const handleAddNewCategory = async () => {
-    if (newCategory.trim()) {
+    if (!newCategory.trim()) return;
+    try {
       const newCat = newCategory.trim();
-      const updatedCustomCategories = [...customCategories, newCat];
-      setCustomCategories(updatedCustomCategories);
+      await createCategory(newCat);
       setCategory(newCat);
       setNewCategory('');
       setShowCategoryModal(false);
-      try {
-        await AsyncStorage.setItem('custom_categories', JSON.stringify(updatedCustomCategories));
-      } catch (error) {
-        console.error('Failed to save category:', error);
-      }
+    } catch (error) {
+      console.error('Failed to create category:', error);
     }
   };
 
@@ -527,7 +525,7 @@ export default function AddProductScreen() {
             </View>
 
             <ScrollView style={styles.categoryList}>
-              {categories.map((cat) => (
+              {categoryOptions.map((cat) => (
                 <TouchableOpacity
                   key={cat}
                   style={[

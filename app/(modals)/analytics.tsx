@@ -316,7 +316,7 @@ export default function AnalyticsScreen() {
                 <View style={styles.methodInfo}>
                   <Text style={[styles.listTitle, { color: colors.text }]}>{method.type}</Text>
                   <Text style={[styles.listMeta, { color: colors.textTertiary }]}>
-                    {method.count} transactions · {method.percentage.toFixed(1)}%
+                    {method.count} transactions - {method.percentage.toFixed(1)}%
                   </Text>
                 </View>
                 <Text style={[styles.listValue, { color: colors.text }]}>

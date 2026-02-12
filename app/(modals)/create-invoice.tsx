@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -16,8 +16,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/context/ThemeContext';
 import { router, useLocalSearchParams } from 'expo-router';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { useData, Invoice } from '@/context/DataContext';
+import { useData, Invoice, Template } from '@/context/DataContext';
+import { getTemplateById } from '@/utils/templateCatalog';
 import { showMessage } from 'react-native-flash-message';
+import TemplatePreviewModal from '@/components/templates/TemplatePreviewModal';
 
 const { width, height } = Dimensions.get('window');
 const isTablet = width >= 768;
@@ -43,7 +45,15 @@ interface Product {
 
 export default function CreateInvoiceScreen() {
   const { colors } = useTheme();
-  const { createInvoice, customers, inventory } = useData();
+  const {
+    createInvoice,
+    customers,
+    inventory,
+    templates,
+    selectedInvoiceTemplate,
+    setInvoiceTemplate,
+    refreshTemplates,
+  } = useData();
   const { customerId, productId } = useLocalSearchParams<{ customerId?: string; productId?: string }>();
   
   const [items, setItems] = useState<InvoiceItem[]>([
@@ -52,6 +62,7 @@ export default function CreateInvoiceScreen() {
   const [invoiceNumber, setInvoiceNumber] = useState(`INV-${new Date().getFullYear()}-${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`);
   const [issueDate, setIssueDate] = useState(new Date());
   const [dueDate, setDueDate] = useState(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000));
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   const [customer, setCustomer] = useState('');
   const [customerEmail, setCustomerEmail] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
@@ -61,12 +72,17 @@ export default function CreateInvoiceScreen() {
   const [showProductModal, setShowProductModal] = useState(false);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [previewTemplate, setPreviewTemplate] = useState<Template | null>(null);
 
   const subtotal = items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
   const tax = subtotal * 0.085;
   const total = subtotal + tax;
 
-  const buildInvoicePayload = (status: Invoice['status']) => ({
+  const buildInvoicePayload = (status: Invoice['status']) => {
+    const resolvedTemplate = selectedInvoiceTemplate || getTemplateById('standard');
+    return {
+    number: invoiceNumber,
+    customerId: selectedCustomerId || undefined,
     customer,
     customerEmail,
     customerPhone,
@@ -75,6 +91,8 @@ export default function CreateInvoiceScreen() {
     amount: total,
     paidAmount: 0,
     status,
+    templateStyle:
+      resolvedTemplate?.templateStyle || resolvedTemplate?.id || undefined,
     items: items.map(item => ({
       id: item.id,
       productId: item.productId,
@@ -83,7 +101,8 @@ export default function CreateInvoiceScreen() {
       unitPrice: item.unitPrice,
     })),
     notes,
-  });
+    };
+  };
 
   const submitInvoice = async (status: Invoice['status'], description: string) => {
     try {
@@ -105,7 +124,7 @@ export default function CreateInvoiceScreen() {
   };
 
   const handleSaveDraft = async () => {
-    if (!customer) {
+    if (!selectedCustomerId) {
       Alert.alert('Error', 'Please select a customer');
       return;
     }
@@ -125,12 +144,19 @@ export default function CreateInvoiceScreen() {
     if (customerId) {
       const foundCustomer = customers.find(c => c.id === customerId);
       if (foundCustomer) {
+        setSelectedCustomerId(foundCustomer.id);
         setCustomer(foundCustomer.name);
         setCustomerEmail(foundCustomer.email);
         setCustomerPhone(foundCustomer.phone);
       }
     }
   }, [customerId, customers]);
+
+  useEffect(() => {
+    if (!templates.length) {
+      refreshTemplates();
+    }
+  }, [templates.length, refreshTemplates]);
 
   useEffect(() => {
     if (!productId) return;
@@ -184,6 +210,7 @@ export default function CreateInvoiceScreen() {
   const handleCustomerSelect = (customerId: string) => {
     const selectedCustomer = customers.find(c => c.id === customerId);
     if (selectedCustomer) {
+      setSelectedCustomerId(selectedCustomer.id);
       setCustomer(selectedCustomer.name);
       setCustomerEmail(selectedCustomer.email);
       setCustomerPhone(selectedCustomer.phone);
@@ -209,8 +236,38 @@ export default function CreateInvoiceScreen() {
     }
   };
 
+  const getTemplateColor = (template?: Template) => {
+    const primary = template?.colors?.primary;
+    if (primary && primary.length >= 3) {
+      return `rgb(${primary[0]}, ${primary[1]}, ${primary[2]})`;
+    }
+    return template?.previewColor || colors.primary500;
+  };
+
+  const availableTemplates = useMemo(() => templates, [templates]);
+
+  const handleTemplateSelect = async (template: Template) => {
+    if (template.isPremium && !template.hasAccess) {
+      Alert.alert(
+        'Premium Template',
+        `${template.name} is locked. Browse templates to unlock it.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Browse Templates', onPress: () => router.push('/(modals)/settings/templates') },
+        ]
+      );
+      return;
+    }
+
+    try {
+      await setInvoiceTemplate(template.id);
+    } catch (error) {
+      Alert.alert('Template Error', 'Unable to select template right now.');
+    }
+  };
+
   const handleSaveInvoice = async () => {
-    if (!customer) {
+    if (!selectedCustomerId) {
       Alert.alert('Error', 'Please select a customer');
       return;
     }
@@ -300,6 +357,61 @@ export default function CreateInvoiceScreen() {
             </View>
           </View>
 
+          {availableTemplates.length > 0 && (
+            <View style={[styles.section, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <View style={styles.templateHeader}>
+                <Text style={[styles.sectionTitle, { color: colors.text }]}>Invoice Template</Text>
+                <TouchableOpacity
+                  style={styles.templateBrowse}
+                  onPress={() => router.push('/(modals)/settings/templates')}
+                >
+                  <Text style={[styles.templateBrowseText, { color: colors.primary500 }]}>Browse Templates</Text>
+                  <Ionicons name="chevron-forward" size={16} color={colors.primary500} />
+                </TouchableOpacity>
+              </View>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.templateScroll}>
+                {availableTemplates.map((template) => {
+                  const isSelected = selectedInvoiceTemplate?.id === template.id;
+                  const isLocked = template.isPremium && !template.hasAccess;
+                  return (
+                    <TouchableOpacity
+                      key={template.id}
+                      style={[
+                        styles.templateCard,
+                        { backgroundColor: colors.background, borderColor: colors.border },
+                        isSelected && { borderColor: colors.primary500, borderWidth: 2 },
+                      ]}
+                      onPress={() => handleTemplateSelect(template)}
+                      onLongPress={() => setPreviewTemplate(template)}
+                      activeOpacity={0.85}
+                    >
+                      <View
+                        style={[
+                          styles.templatePreview,
+                          { backgroundColor: getTemplateColor(template), opacity: isLocked ? 0.6 : 1 },
+                        ]}
+                      />
+                      <Text
+                        style={[styles.templateName, { color: colors.text }]}
+                        numberOfLines={1}
+                      >
+                        {template.name}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.templateMeta,
+                          { color: isLocked ? colors.error : isSelected ? colors.primary500 : colors.textTertiary },
+                        ]}
+                      >
+                        {isLocked ? 'Locked' : isSelected ? 'Selected' : 'Tap to use'}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          )}
+
           {/* Customer */}
           <View style={[styles.section, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>Customer</Text>
@@ -319,7 +431,7 @@ export default function CreateInvoiceScreen() {
                         backgroundColor: colors.background,
                         borderColor: colors.border
                       },
-                      customer === cust.name && [
+                      selectedCustomerId === cust.id && [
                         styles.customerOptionActive,
                         { 
                           backgroundColor: colors.primary500,
@@ -333,7 +445,7 @@ export default function CreateInvoiceScreen() {
                       style={[
                         styles.customerOptionText,
                         { color: colors.text, fontSize: isSmallScreen ? 12 : 14 },
-                        customer === cust.name && styles.customerOptionTextActive
+                        selectedCustomerId === cust.id && styles.customerOptionTextActive
                       ]}
                       numberOfLines={1}
                       ellipsizeMode="tail"
@@ -753,6 +865,12 @@ export default function CreateInvoiceScreen() {
           </View>
         </View>
       </Modal>
+
+      <TemplatePreviewModal
+        visible={Boolean(previewTemplate)}
+        template={previewTemplate}
+        onClose={() => setPreviewTemplate(null)}
+      />
     </SafeAreaView>
   );
 }
@@ -807,6 +925,45 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: isTablet ? 22 : isSmallScreen ? 16 : 18,
     fontWeight: '700',
+  },
+  templateHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: isSmallScreen ? 12 : 16,
+  },
+  templateBrowse: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  templateBrowseText: {
+    fontSize: isSmallScreen ? 12 : 14,
+    fontWeight: '600',
+  },
+  templateScroll: {
+    marginTop: 4,
+  },
+  templateCard: {
+    width: isSmallScreen ? 120 : 140,
+    borderRadius: 12,
+    padding: 12,
+    marginRight: 12,
+    borderWidth: 1,
+  },
+  templatePreview: {
+    height: 48,
+    borderRadius: 10,
+    marginBottom: 8,
+  },
+  templateName: {
+    fontSize: isSmallScreen ? 12 : 14,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  templateMeta: {
+    fontSize: isSmallScreen ? 10 : 12,
+    fontWeight: '500',
   },
   addItemIcon: {
     padding: 4,

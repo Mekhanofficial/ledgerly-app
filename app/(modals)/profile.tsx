@@ -316,12 +316,12 @@ export default function ProfileScreen() {
                 </View>
               )}
               
-              {user?.country && (
-                <View style={styles.infoRow}>
-                  <Ionicons name="location-outline" size={20} color={colors.textTertiary} />
-                  <Text style={[styles.infoText, { color: colors.text }]}>{user.country}</Text>
-                </View>
-              )}
+              <View style={styles.infoRow}>
+                <Ionicons name="location-outline" size={20} color={colors.textTertiary} />
+                <Text style={[styles.infoText, { color: colors.text }]}>
+                  {user?.country || 'No country set'}
+                </Text>
+              </View>
             </View>
           </>
         )}

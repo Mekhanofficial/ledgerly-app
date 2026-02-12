@@ -136,7 +136,7 @@ export default function ProductDetailScreen() {
           
           <View style={styles.statsGrid}>
             <View style={styles.statItem}>
-              <Text style={[styles.statLabel, { color: colors.textTertiary }]}>Current Stock</Text>
+              <Text style={[styles.statLabel, { color: colors.textTertiary }]}>Remaining Stock</Text>
               <View style={styles.stockInfo}>
                 <Text style={[styles.stockQuantity, { color: colors.text }]}>{product?.quantity ?? 0}</Text>
                 <View style={[styles.statusBadge, { backgroundColor: `${statusColor(product?.status)}15` }]}>

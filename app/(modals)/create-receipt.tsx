@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -15,13 +15,19 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '@/context/ThemeContext';
-import { useData } from '@/context/DataContext';
+import { useData, Template } from '@/context/DataContext';
 import { useUser } from '@/context/UserContext';
+import { getTemplateById } from '@/utils/templateCatalog';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
+import { buildTemplateVariables, resolveTemplateTheme } from '@/utils/templateStyles';
+import TemplatePreviewModal from '@/components/templates/TemplatePreviewModal';
+import { buildTemplateDecorations } from '@/utils/templateDecorations';
+import { resolveTemplateStyleVariant } from '@/utils/templateStyleVariants';
 
 interface ReceiptItem {
   id: string;
+  productId?: string;
   name: string;
   price: number;
   quantity: number;
@@ -33,15 +39,16 @@ export default function CreateReceiptScreen() {
     addReceipt, 
     inventory, 
     customers, 
-    createReceipt // Import as fallback
+    createReceipt, // Import as fallback
+    selectedReceiptTemplate,
+    templates,
+    setReceiptTemplate,
+    refreshTemplates,
   } = useData();
   const { user } = useUser();
   const params = useLocalSearchParams();
   
-  const [items, setItems] = useState<ReceiptItem[]>([
-    { id: '1', name: 'Office Supplies', price: 25.99, quantity: 1 },
-    { id: '2', name: 'Wireless Mouse', price: 39.99, quantity: 1 },
-  ]);
+  const [items, setItems] = useState<ReceiptItem[]>([]);
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'transfer'>('cash');
   const [customerName, setCustomerName] = useState<string>('');
   const [customerEmail, setCustomerEmail] = useState<string>('');
@@ -49,7 +56,8 @@ export default function CreateReceiptScreen() {
   const [notes, setNotes] = useState<string>('');
   const [sendEmail, setSendEmail] = useState<boolean>(false);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
-  const [selectedCustomer, setSelectedCustomer] = useState<string>('');
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
+  const [previewTemplate, setPreviewTemplate] = useState<Template | null>(null);
   const companyName = (
     user?.businessName?.trim() ||
     `${user?.firstName || ''} ${user?.lastName || ''}`.trim() ||
@@ -71,6 +79,7 @@ export default function CreateReceiptScreen() {
         const parsedProducts = JSON.parse(params.selectedProducts as string);
         const formattedItems = parsedProducts.map((product: any, index: number) => ({
           id: (Date.now() + index).toString(),
+          productId: product.id,
           name: product.name,
           price: parseFloat(product.price),
           quantity: 1,
@@ -81,6 +90,12 @@ export default function CreateReceiptScreen() {
       }
     }
   }, [params.selectedProducts]);
+
+  useEffect(() => {
+    if (!templates.length) {
+      refreshTemplates();
+    }
+  }, [templates.length, refreshTemplates]);
 
   // Calculate totals
   const subtotal = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
@@ -139,16 +154,52 @@ export default function CreateReceiptScreen() {
     setNotes('');
     setPaymentMethod('cash');
     setSendEmail(false);
-    setSelectedCustomer('');
+    setSelectedCustomerId('');
   };
 
-  const handleCustomerSelect = (customer: string) => {
-    setSelectedCustomer(customer);
-    const customerData = customers.find(c => c.name === customer);
+  const handleCustomerSelect = (customerId: string) => {
+    setSelectedCustomerId(customerId);
+    if (!customerId) {
+      setCustomerName('');
+      setCustomerEmail('');
+      setCustomerPhone('');
+      return;
+    }
+    const customerData = customers.find(c => c.id === customerId);
     if (customerData) {
       setCustomerName(customerData.name);
       setCustomerEmail(customerData.email || '');
       setCustomerPhone(customerData.phone || '');
+    }
+  };
+
+  const getTemplateColor = (template?: Template) => {
+    const primary = template?.colors?.primary;
+    if (primary && primary.length >= 3) {
+      return `rgb(${primary[0]}, ${primary[1]}, ${primary[2]})`;
+    }
+    return template?.previewColor || colors.primary500;
+  };
+
+  const availableTemplates = useMemo(() => templates, [templates]);
+
+  const handleTemplateSelect = async (template: Template) => {
+    if (template.isPremium && !template.hasAccess) {
+      Alert.alert(
+        'Premium Template',
+        `${template.name} is locked. Browse templates to unlock it.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Browse Templates', onPress: () => router.push('/(modals)/settings/templates') },
+        ]
+      );
+      return;
+    }
+
+    try {
+      await setReceiptTemplate(template.id);
+    } catch (error) {
+      Alert.alert('Template Error', 'Unable to select template right now.');
     }
   };
 
@@ -161,6 +212,36 @@ export default function CreateReceiptScreen() {
       hour: '2-digit',
       minute: '2-digit',
     });
+    const receiptNumber = `RCP-${(Date.now() % 1000).toString().padStart(3, '0')}`;
+    const paymentLabel = paymentMethod ? paymentMethod.toUpperCase() : 'CASH';
+
+    const resolvedTemplate = selectedReceiptTemplate || getTemplateById('standard');
+    const templateTheme = resolveTemplateTheme(resolvedTemplate);
+    const templateVariables = buildTemplateVariables(templateTheme);
+    const templateVariant = resolveTemplateStyleVariant(
+      resolvedTemplate?.templateStyle || resolvedTemplate?.id,
+      resolvedTemplate
+    );
+    const { headerHtml, footerHtml, paddingTop, paddingBottom, pageStyle } =
+      buildTemplateDecorations(templateVariant, {
+        primary: templateTheme.primary,
+        secondary: templateTheme.secondary,
+        accent: templateTheme.accent,
+        text: templateTheme.text,
+      });
+    const pageStyleAttr = pageStyle ? pageStyle : 'background: var(--accent);';
+    const headerBackgroundStyle = resolvedTemplate?.layout?.hasGradientEffects
+      ? 'background: var(--header-bg); color: var(--header-text); border-radius: 16px; padding: 24px;'
+      : '';
+    const footerStyle = templateTheme.showFooter ? '' : 'display: none;';
+    const backgroundPattern = templateTheme.hasBackgroundPattern
+      ? 'background-image: radial-gradient(var(--accent) 1px, transparent 1px); background-size: 14px 14px;'
+      : '';
+    const watermarkMarkup = templateTheme.showWatermark
+      ? `<div class="watermark">${templateTheme.watermarkText}</div>`
+      : '';
+    const companyNameColor = resolvedTemplate?.layout?.hasGradientEffects ? 'var(--header-text)' : 'var(--primary)';
+    const companyInfoColor = resolvedTemplate?.layout?.hasGradientEffects ? 'var(--header-text)' : 'var(--muted)';
 
     return `
       <!DOCTYPE html>
@@ -170,139 +251,174 @@ export default function CreateReceiptScreen() {
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Receipt</title>
         <style>
-          body {
-            font-family: 'Helvetica', 'Arial', sans-serif;
-            margin: 30px;
-            color: #333;
-            max-width: 500px;
-            margin: 0 auto;
-            padding: 20px;
+          ${templateVariables}
+          * {
+            box-sizing: border-box;
           }
-          .header {
-            text-align: center;
-            margin-bottom: 30px;
-            border-bottom: 2px solid #4F46E5;
-            padding-bottom: 20px;
+          body {
+            font-family: ${templateTheme.bodyFont};
+            margin: 0;
+            padding: 0;
+            color: var(--text);
+            background: var(--accent);
+            ${backgroundPattern}
+          }
+          .page {
+            position: relative;
+            min-height: 100%;
+            padding: ${paddingTop}px 24px ${paddingBottom}px;
+            overflow: hidden;
+            ${pageStyleAttr}
+          }
+          .content {
+            position: relative;
+            z-index: 2;
+            max-width: 520px;
+            margin: 0 auto;
+          }
+          .header-card {
+            border-radius: 16px;
+            padding: 18px;
+            border: 1px solid var(--border);
+            ${headerBackgroundStyle}
+          }
+          .header-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 16px;
           }
           .company-name {
-            font-size: 24px;
+            font-size: 22px;
             font-weight: bold;
-            color: #4F46E5;
-            margin-bottom: 5px;
+            color: ${companyNameColor};
+            margin-bottom: 6px;
+            font-family: ${templateTheme.titleFont};
           }
           .company-info {
             font-size: 12px;
-            color: #666;
+            color: ${companyInfoColor};
             line-height: 1.4;
           }
-          .receipt-info {
+          .document-title {
+            font-size: 12px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            font-weight: 700;
+            color: ${companyNameColor};
+            text-align: right;
+          }
+          .meta-text {
+            font-size: 11px;
+            color: ${companyInfoColor};
+            text-align: right;
+            margin-top: 4px;
+          }
+          .info-bar {
+            margin: 18px 0;
+            padding: 12px 14px;
+            background-color: var(--accent);
+            border-radius: 10px;
             display: flex;
             justify-content: space-between;
-            margin-bottom: 20px;
-            padding: 15px;
-            background-color: #F9FAFB;
-            border-radius: 8px;
+            font-size: 12px;
+            border: 1px solid var(--border);
           }
-          .receipt-number {
-            font-weight: bold;
-            color: #111827;
+          .info-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+            margin-bottom: 18px;
           }
-          .receipt-date {
-            color: #6B7280;
+          .info-card {
+            background-color: var(--accent);
+            border-radius: 10px;
+            padding: 12px 14px;
+            border: 1px solid var(--border);
+            font-size: 12px;
           }
-          .customer-info {
-            margin-bottom: 25px;
-            padding: 15px;
-            background-color: #F9FAFB;
-            border-radius: 8px;
-          }
-          .customer-name {
-            font-weight: bold;
-            margin-bottom: 5px;
-            color: #111827;
+          .info-title {
+            font-weight: 700;
+            color: var(--primary);
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-size: 10px;
           }
           .items-table {
             width: 100%;
             border-collapse: collapse;
-            margin: 25px 0;
+            margin: 10px 0 16px;
+            overflow: hidden;
+            border-radius: 10px;
+            border: 1px solid var(--border);
           }
           .items-table th {
-            background-color: #4F46E5;
-            color: white;
-            padding: 12px 8px;
+            background-color: var(--primary);
+            color: #fff;
+            padding: 12px 10px;
             text-align: left;
             font-weight: bold;
-            font-size: 14px;
+            font-size: 13px;
           }
           .items-table td {
-            padding: 10px 8px;
-            border-bottom: 1px solid #E5E7EB;
-            font-size: 14px;
+            padding: 10px 10px;
+            border-bottom: 1px solid var(--border);
+            font-size: 12px;
           }
-          .items-table tr:last-child td {
-            border-bottom: 2px solid #4F46E5;
+          .items-table tbody tr:nth-child(even) {
+            background-color: var(--accent);
           }
-          .text-right {
-            text-align: right;
-          }
-          .text-center {
-            text-align: center;
-          }
+          .text-right { text-align: right; }
+          .text-center { text-align: center; }
           .summary {
-            margin: 25px 0;
-            padding: 20px;
-            background-color: #F9FAFB;
-            border-radius: 8px;
+            margin: 12px 0 18px;
+            padding: 16px;
+            background-color: var(--accent);
+            border-radius: 10px;
+            border: 1px solid var(--border);
           }
           .summary-row {
             display: flex;
             justify-content: space-between;
-            margin-bottom: 10px;
-            font-size: 14px;
+            margin-bottom: 8px;
+            font-size: 12px;
           }
           .total-row {
             display: flex;
             justify-content: space-between;
             font-weight: bold;
-            font-size: 18px;
-            padding-top: 15px;
-            border-top: 2px solid #4F46E5;
-            margin-top: 15px;
-          }
-          .payment-method {
-            margin: 20px 0;
-            padding: 15px;
-            background-color: #F9FAFB;
-            border-radius: 8px;
-            text-align: center;
-          }
-          .payment-label {
-            font-weight: bold;
-            margin-bottom: 5px;
+            font-size: 16px;
+            padding-top: 10px;
+            border-top: 2px solid var(--primary);
+            margin-top: 10px;
           }
           .footer {
             text-align: center;
-            margin-top: 40px;
-            padding-top: 20px;
-            border-top: 1px solid #E5E7EB;
-            color: #6B7280;
-            font-size: 12px;
+            margin-top: 24px;
+            padding-top: 16px;
+            border-top: 1px solid var(--border);
+            color: var(--muted);
+            font-size: 11px;
             line-height: 1.6;
+            ${footerStyle}
           }
           .notes {
-            margin-top: 20px;
-            padding: 15px;
-            background-color: #FEF3C7;
-            border-radius: 8px;
-            border-left: 4px solid #F59E0B;
-            font-size: 13px;
+            margin-top: 18px;
+            padding: 14px;
+            background-color: var(--accent);
+            border-radius: 10px;
+            border-left: 4px solid var(--secondary);
+            font-size: 12px;
           }
-          .barcode {
-            text-align: center;
-            margin: 20px 0;
-            font-family: monospace;
-            letter-spacing: 8px;
-            font-size: 24px;
+          .watermark {
+            position: fixed;
+            top: 40%;
+            left: 50%;
+            transform: translate(-50%, -50%) rotate(-20deg);
+            font-size: 64px;
+            color: rgba(0, 0, 0, 0.06);
+            font-weight: bold;
+            pointer-events: none;
           }
           @media print {
             body {
@@ -316,96 +432,101 @@ export default function CreateReceiptScreen() {
         </style>
       </head>
       <body>
-        <div class="header">
-          <div class="company-name">${companyName}</div>
-          <div class="company-info">
-            ${companyContactMarkup}
-          </div>
-        </div>
-        
-        <div class="receipt-info">
-          <div>
-            <div class="receipt-number">Receipt #RCP-${(Date.now() % 1000).toString().padStart(3, '0')}</div>
-            <div class="receipt-date">${date}</div>
-          </div>
-          <div class="payment-method" style="padding: 0; background: none; margin: 0;">
-            <div class="payment-label">Payment Method:</div>
-            <div>${paymentMethod.toUpperCase()}</div>
-          </div>
-        </div>
-        
-        ${customerName ? `
-          <div class="customer-info">
-            <div class="customer-name">${customerName}</div>
-            ${customerEmail ? `<div>${customerEmail}</div>` : ''}
-            ${customerPhone ? `<div>${customerPhone}</div>` : ''}
-          </div>
-        ` : ''}
-        
-        <table class="items-table">
-          <thead>
-            <tr>
-              <th>Description</th>
-              <th>Qty</th>
-              <th class="text-right">Price</th>
-              <th class="text-right">Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${items.map(item => `
-              <tr>
-                <td>${item.name}</td>
-                <td class="text-center">${item.quantity}</td>
-                <td class="text-right">$${item.price.toFixed(2)}</td>
-                <td class="text-right">$${(item.price * item.quantity).toFixed(2)}</td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-        
-        <div class="summary">
-          <div class="summary-row">
-            <span>Subtotal:</span>
-            <span>$${subtotal.toFixed(2)}</span>
-          </div>
-          ${discount > 0 ? `
-            <div class="summary-row">
-              <span>Discount:</span>
-              <span>-$${discount.toFixed(2)}</span>
+        <div class="page">
+          ${headerHtml}
+          ${footerHtml}
+          <div class="content">
+            ${watermarkMarkup}
+            <div class="header-card">
+              <div class="header-row">
+                <div>
+                  <div class="company-name">${companyName}</div>
+                  <div class="company-info">${companyContactMarkup}</div>
+                </div>
+                <div>
+                  <div class="document-title">RECEIPT</div>
+                  <div class="meta-text">#${receiptNumber}</div>
+                  <div class="meta-text">${date}</div>
+                </div>
+              </div>
             </div>
-          ` : ''}
-          <div class="summary-row">
-            <span>Tax (8.5%):</span>
-            <span>$${tax.toFixed(2)}</span>
+
+            <div class="info-bar">
+              <div><strong>Receipt</strong> ${receiptNumber}</div>
+              <div><strong>Payment</strong> ${paymentLabel}</div>
+            </div>
+
+            <div class="info-grid">
+              <div class="info-card">
+                <div class="info-title">Customer</div>
+                <div>${customerName || 'Walk-in Customer'}</div>
+                ${customerEmail ? `<div>${customerEmail}</div>` : ''}
+                ${customerPhone ? `<div>${customerPhone}</div>` : ''}
+              </div>
+              <div class="info-card">
+                <div class="info-title">Payment</div>
+                <div>Method: ${paymentLabel}</div>
+                <div>Status: Completed</div>
+                <div>Amount: $${total.toFixed(2)}</div>
+              </div>
+            </div>
+            
+            <table class="items-table">
+              <thead>
+                <tr>
+                  <th>Description</th>
+                  <th>Qty</th>
+                  <th class="text-right">Price</th>
+                  <th class="text-right">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${items.map(item => `
+                  <tr>
+                    <td>${item.name}</td>
+                    <td class="text-center">${item.quantity}</td>
+                    <td class="text-right">$${item.price.toFixed(2)}</td>
+                    <td class="text-right">$${(item.price * item.quantity).toFixed(2)}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+            
+            <div class="summary">
+              <div class="summary-row">
+                <span>Subtotal:</span>
+                <span>$${subtotal.toFixed(2)}</span>
+              </div>
+              ${discount > 0 ? `
+                <div class="summary-row">
+                  <span>Discount:</span>
+                  <span>-$${discount.toFixed(2)}</span>
+                </div>
+              ` : ''}
+              <div class="summary-row">
+                <span>Tax (8.5%):</span>
+                <span>$${tax.toFixed(2)}</span>
+              </div>
+              <div class="total-row">
+                <span>Total Amount:</span>
+                <span>$${total.toFixed(2)}</span>
+              </div>
+            </div>
+            
+            ${notes ? `
+              <div class="notes">
+                <strong>Notes:</strong><br>
+                ${notes}
+              </div>
+            ` : ''}
+            
+            <div class="footer">
+              <p>Thank you for your business!</p>
+              <p>Please retain this receipt for your records.</p>
+              <p>Items are non-refundable. Store credit only within 30 days with receipt.</p>
+              <p>(c) ${new Date().getFullYear()} ${companyName}. All rights reserved.</p>
+            </div>
           </div>
-          <div class="total-row">
-            <span>Total Amount:</span>
-            <span>$${total.toFixed(2)}</span>
-          </div>
-        </div>
-        
-        <div class="payment-method">
-          <div class="payment-label">PAYMENT METHOD</div>
-          <div style="font-size: 18px; font-weight: bold; color: #4F46E5;">${paymentMethod.toUpperCase()}</div>
-          <div style="margin-top: 10px; font-size: 20px; font-weight: bold;">$${total.toFixed(2)}</div>
-        </div>
-        
-        <div class="barcode">
-          ||||||| | || ||| | || |||||||||
-        </div>
-        
-        ${notes ? `
-          <div class="notes">
-            <strong>Notes:</strong><br>
-            ${notes}
-          </div>
-        ` : ''}
-        
-        <div class="footer">
-          <p>Thank you for your business!</p>
-          <p>Please retain this receipt for your records.</p>
-          <p>Items are non-refundable. Store credit only within 30 days with receipt.</p>
-          <p>© ${new Date().getFullYear()} ${companyName}. All rights reserved.</p>
         </div>
       </body>
       </html>
@@ -427,9 +548,11 @@ export default function CreateReceiptScreen() {
     try {
       // Generate HTML for the receipt
       const htmlContent = generateReceiptHTML();
+      const resolvedTemplate = selectedReceiptTemplate || getTemplateById('standard');
       
       // Create receipt data
       const receiptData = {
+        customerId: selectedCustomerId || undefined,
         customer: customerName || 'Walk-in Customer',
         customerEmail,
         customerPhone,
@@ -440,6 +563,8 @@ export default function CreateReceiptScreen() {
         discount,
         paymentMethod,
         status: 'completed' as const,
+        templateStyle:
+          resolvedTemplate?.templateStyle || resolvedTemplate?.id || undefined,
         items: items.map(item => ({
           id: item.id,
           name: item.name,
@@ -514,6 +639,7 @@ export default function CreateReceiptScreen() {
   const quickAddProduct = (product: any) => {
     const newItem: ReceiptItem = {
       id: Date.now().toString(),
+      productId: product.id,
       name: product.name,
       price: product.price,
       quantity: 1,
@@ -623,6 +749,61 @@ export default function CreateReceiptScreen() {
           </TouchableOpacity>
         </View>
 
+        {availableTemplates.length > 0 && (
+          <View style={[styles.section, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <View style={styles.templateHeader}>
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>Receipt Template</Text>
+              <TouchableOpacity
+                style={styles.templateBrowse}
+                onPress={() => router.push('/(modals)/settings/templates')}
+              >
+                <Text style={[styles.templateBrowseText, { color: colors.primary500 }]}>Browse Templates</Text>
+                <Ionicons name="chevron-forward" size={16} color={colors.primary500} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.templateScroll}>
+              {availableTemplates.map((template) => {
+                const isSelected = selectedReceiptTemplate?.id === template.id;
+                const isLocked = template.isPremium && !template.hasAccess;
+                return (
+                  <TouchableOpacity
+                    key={template.id}
+                    style={[
+                      styles.templateCard,
+                      { backgroundColor: colors.background, borderColor: colors.border },
+                      isSelected && { borderColor: colors.primary500, borderWidth: 2 },
+                    ]}
+                    onPress={() => handleTemplateSelect(template)}
+                    onLongPress={() => setPreviewTemplate(template)}
+                    activeOpacity={0.85}
+                  >
+                    <View
+                      style={[
+                        styles.templatePreview,
+                        { backgroundColor: getTemplateColor(template), opacity: isLocked ? 0.6 : 1 },
+                      ]}
+                    />
+                    <Text
+                      style={[styles.templateName, { color: colors.text }]}
+                      numberOfLines={1}
+                    >
+                      {template.name}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.templateMeta,
+                        { color: isLocked ? colors.error : isSelected ? colors.primary500 : colors.textTertiary },
+                      ]}
+                    >
+                      {isLocked ? 'Locked' : isSelected ? 'Selected' : 'Tap to use'}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        )}
+
         {/* Summary Section */}
         <View style={[styles.section, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <Text style={[styles.sectionTitle, { color: colors.text }]}>Summary</Text>
@@ -645,14 +826,14 @@ export default function CreateReceiptScreen() {
           <View style={[styles.section, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>Select Customer (Optional)</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.customersScroll}>
-              <TouchableOpacity
-                style={[
-                  styles.customerButton,
-                  { backgroundColor: colors.card, borderColor: colors.border },
-                  selectedCustomer === '' && [styles.customerButtonActive, { borderColor: colors.primary500 }]
-                ]}
-                onPress={() => handleCustomerSelect('')}
-              >
+                <TouchableOpacity
+                  style={[
+                    styles.customerButton,
+                    { backgroundColor: colors.card, borderColor: colors.border },
+                    selectedCustomerId === '' && [styles.customerButtonActive, { borderColor: colors.primary500 }]
+                  ]}
+                  onPress={() => handleCustomerSelect('')}
+                >
                 <Ionicons name="person-add-outline" size={20} color={colors.text} />
                 <Text style={[styles.customerButtonText, { color: colors.text }]}>Walk-in</Text>
               </TouchableOpacity>
@@ -662,9 +843,9 @@ export default function CreateReceiptScreen() {
                   style={[
                     styles.customerButton,
                     { backgroundColor: colors.card, borderColor: colors.border },
-                    selectedCustomer === customer.name && [styles.customerButtonActive, { borderColor: colors.primary500 }]
+                    selectedCustomerId === customer.id && [styles.customerButtonActive, { borderColor: colors.primary500 }]
                   ]}
-                  onPress={() => handleCustomerSelect(customer.name)}
+                  onPress={() => handleCustomerSelect(customer.id)}
                 >
                   <Ionicons name="person-outline" size={20} color={colors.text} />
                   <Text style={[styles.customerButtonText, { color: colors.text }]} numberOfLines={1}>
@@ -807,6 +988,12 @@ export default function CreateReceiptScreen() {
 
         <View style={styles.spacer} />
       </ScrollView>
+
+      <TemplatePreviewModal
+        visible={Boolean(previewTemplate)}
+        template={previewTemplate}
+        onClose={() => setPreviewTemplate(null)}
+      />
     </SafeAreaView>
   );
 }
@@ -852,6 +1039,45 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
     marginBottom: 16,
+  },
+  templateHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  templateBrowse: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  templateBrowseText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  templateScroll: {
+    marginTop: 4,
+  },
+  templateCard: {
+    width: 140,
+    borderRadius: 12,
+    padding: 12,
+    marginRight: 12,
+    borderWidth: 1,
+  },
+  templatePreview: {
+    height: 48,
+    borderRadius: 10,
+    marginBottom: 8,
+  },
+  templateName: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  templateMeta: {
+    fontSize: 12,
+    fontWeight: '500',
   },
   productsScroll: {
     flexDirection: 'row',

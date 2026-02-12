@@ -80,7 +80,7 @@ export default function CategoryProductsScreen() {
             <Text style={[styles.statValue, { color: colors.text }]}>
               {products.filter(p => p.status === 'in-stock').length}
             </Text>
-            <Text style={[styles.statLabel, { color: colors.textTertiary }]}>In Stock</Text>
+            <Text style={[styles.statLabel, { color: colors.textTertiary }]}>Available</Text>
           </View>
         </View>
 
@@ -119,7 +119,7 @@ export default function CategoryProductsScreen() {
                 
                 <View style={styles.productDetails}>
                   <View style={styles.quantityContainer}>
-                    <Text style={[styles.quantityLabel, { color: colors.textTertiary }]}>Quantity:</Text>
+                    <Text style={[styles.quantityLabel, { color: colors.textTertiary }]}>Remaining:</Text>
                     <Text style={[styles.quantityValue, { color: colors.text }]}>{product.quantity}</Text>
                   </View>
                   <View style={[styles.statusBadge, { backgroundColor: `${getStatusColor(product.status)}15` }]}>

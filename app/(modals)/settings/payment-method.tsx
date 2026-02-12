@@ -7,58 +7,68 @@ import {
   ScrollView,
   TouchableOpacity,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { useTheme } from '@/context/ThemeContext';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { router } from 'expo-router';
+import { apiDelete, apiGet, apiPost } from '@/services/apiClient';
+import { DEFAULT_PAYMENT_METHOD_KEY } from '@/services/storageKeys';
 
 interface PaymentMethod {
   id: string;
-  type: 'card' | 'bank' | 'mobile' | 'cash';
   name: string;
-  lastFour?: string;
-  expiryDate?: string;
-  isDefault: boolean;
+  accountDetails?: string;
+  isActive: boolean;
 }
 
 export default function PaymentMethodScreen() {
   const { colors } = useTheme();
-  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([
-    { id: '1', type: 'card', name: 'Visa', lastFour: '4242', expiryDate: '12/25', isDefault: true },
-    { id: '2', type: 'card', name: 'MasterCard', lastFour: '8888', expiryDate: '08/24', isDefault: false },
-  ]);
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [defaultMethodId, setDefaultMethodId] = useState<string | null>(null);
 
   useEffect(() => {
-    loadPaymentMethods();
+    loadDefaultMethod();
+    fetchPaymentMethods();
   }, []);
 
-  const loadPaymentMethods = async () => {
+  const loadDefaultMethod = async () => {
     try {
-      const saved = await AsyncStorage.getItem('paymentMethods');
-      if (saved) {
-        setPaymentMethods(JSON.parse(saved));
-      }
+      const savedDefault = await AsyncStorage.getItem(DEFAULT_PAYMENT_METHOD_KEY);
+      if (savedDefault) setDefaultMethodId(savedDefault);
+    } catch (error) {
+      console.error('Error loading default payment method:', error);
+    }
+  };
+
+  const fetchPaymentMethods = async () => {
+    try {
+      setLoading(true);
+      const response: any = await apiGet('/api/v1/business/payment-methods');
+      const methods = response?.data ?? response ?? [];
+      const mapped = methods.map((method: any) => ({
+        id: method._id || method.id,
+        name: method.name || 'Payment Method',
+        accountDetails: method.accountDetails || '',
+        isActive: method.isActive !== false,
+      }));
+      setPaymentMethods(mapped);
     } catch (error) {
       console.error('Error loading payment methods:', error);
+      Alert.alert('Error', 'Failed to load payment methods');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const savePaymentMethods = async (methods: PaymentMethod[]) => {
+  const handleSetDefault = async (id: string) => {
+    setDefaultMethodId(id);
     try {
-      await AsyncStorage.setItem('paymentMethods', JSON.stringify(methods));
+      await AsyncStorage.setItem(DEFAULT_PAYMENT_METHOD_KEY, id);
     } catch (error) {
-      console.error('Error saving payment methods:', error);
+      console.error('Error saving default payment method:', error);
     }
-  };
-
-  const handleSetDefault = (id: string) => {
-    const updated = paymentMethods.map(method => ({
-      ...method,
-      isDefault: method.id === id,
-    }));
-    setPaymentMethods(updated);
-    savePaymentMethods(updated);
   };
 
   const handleDeleteMethod = (id: string) => {
@@ -70,10 +80,17 @@ export default function PaymentMethodScreen() {
         {
           text: 'Delete',
           style: 'destructive',
-          onPress: () => {
-            const updated = paymentMethods.filter(method => method.id !== id);
-            setPaymentMethods(updated);
-            savePaymentMethods(updated);
+          onPress: async () => {
+            try {
+              await apiDelete(`/api/v1/business/payment-methods/${id}`);
+              setPaymentMethods((prev) => prev.filter((method) => method.id !== id));
+              if (defaultMethodId === id) {
+                setDefaultMethodId(null);
+                await AsyncStorage.removeItem(DEFAULT_PAYMENT_METHOD_KEY);
+              }
+            } catch (error) {
+              Alert.alert('Error', 'Unable to remove payment method.');
+            }
           },
         },
       ]
@@ -89,33 +106,47 @@ export default function PaymentMethodScreen() {
         { text: 'Credit/Debit Card', onPress: () => addNewMethod('card') },
         { text: 'Bank Account', onPress: () => addNewMethod('bank') },
         { text: 'Mobile Wallet', onPress: () => addNewMethod('mobile') },
+        { text: 'Cash', onPress: () => addNewMethod('cash') },
       ]
     );
   };
 
-  const addNewMethod = (type: PaymentMethod['type']) => {
-    const newMethod: PaymentMethod = {
-      id: Date.now().toString(),
-      type,
-      name: type === 'card' ? 'New Card' : type === 'bank' ? 'Bank Account' : 'Mobile Wallet',
-      lastFour: '0000',
-      expiryDate: '12/30',
-      isDefault: paymentMethods.length === 0,
-    };
-
-    const updated = [...paymentMethods, newMethod];
-    setPaymentMethods(updated);
-    savePaymentMethods(updated);
+  const addNewMethod = async (type: 'card' | 'bank' | 'mobile' | 'cash') => {
+    try {
+      const name =
+        type === 'card'
+          ? 'Card'
+          : type === 'bank'
+          ? 'Bank Transfer'
+          : type === 'mobile'
+          ? 'Mobile Wallet'
+          : 'Cash';
+      const response: any = await apiPost('/api/v1/business/payment-methods', {
+        name,
+        accountDetails: 'Added via mobile app',
+      });
+      const method = response?.data ?? response;
+      const mapped: PaymentMethod = {
+        id: method._id || method.id,
+        name: method.name || name,
+        accountDetails: method.accountDetails || 'Added via mobile app',
+        isActive: method.isActive !== false,
+      };
+      setPaymentMethods((prev) => [mapped, ...prev]);
+      if (!defaultMethodId) {
+        handleSetDefault(mapped.id);
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Unable to add payment method.');
+    }
   };
 
-  const getMethodIcon = (type: PaymentMethod['type']) => {
-    switch (type) {
-      case 'card': return 'card-outline';
-      case 'bank': return 'business-outline';
-      case 'mobile': return 'phone-portrait-outline';
-      case 'cash': return 'cash-outline';
-      default: return 'card-outline';
-    }
+  const getMethodIcon = (name: string) => {
+    const value = name.toLowerCase();
+    if (value.includes('bank')) return 'business-outline';
+    if (value.includes('mobile') || value.includes('wallet')) return 'phone-portrait-outline';
+    if (value.includes('cash')) return 'cash-outline';
+    return 'card-outline';
   };
 
   return (
@@ -129,7 +160,17 @@ export default function PaymentMethodScreen() {
         </Text>
 
         <View style={styles.methodsList}>
-          {paymentMethods.map((method) => (
+          {loading && paymentMethods.length === 0 ? (
+            <View style={styles.loadingState}>
+              <ActivityIndicator size="small" color={colors.primary500} />
+              <Text style={[styles.loadingText, { color: colors.textTertiary }]}>Loading methods...</Text>
+            </View>
+          ) : paymentMethods.length === 0 ? (
+            <Text style={[styles.emptyText, { color: colors.textTertiary }]}>
+              No payment methods yet. Add one to get started.
+            </Text>
+          ) : (
+            paymentMethods.map((method) => (
             <View
               key={method.id}
               style={[styles.methodCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
@@ -137,18 +178,18 @@ export default function PaymentMethodScreen() {
               <View style={styles.methodHeader}>
                 <View style={styles.methodLeft}>
                   <View style={[styles.methodIcon, { backgroundColor: colors.primary50 }]}>
-                    <Ionicons name={getMethodIcon(method.type)} size={24} color={colors.primary500} />
+                    <Ionicons name={getMethodIcon(method.name)} size={24} color={colors.primary500} />
                   </View>
                   <View>
                     <Text style={[styles.methodName, { color: colors.text }]}>
-                      {method.name} {method.lastFour ? `•••• ${method.lastFour}` : ''}
+                      {method.name}
                     </Text>
                     <Text style={[styles.methodDetails, { color: colors.textTertiary }]}>
-                      {method.type === 'card' && method.expiryDate ? `Expires ${method.expiryDate}` : method.type}
+                      {method.accountDetails || (method.isActive ? 'Active' : 'Inactive')}
                     </Text>
                   </View>
                 </View>
-                {method.isDefault && (
+                {defaultMethodId === method.id && (
                   <View style={[styles.defaultBadge, { backgroundColor: colors.success + '20' }]}>
                     <Text style={[styles.defaultText, { color: colors.success }]}>Default</Text>
                   </View>
@@ -156,7 +197,7 @@ export default function PaymentMethodScreen() {
               </View>
 
               <View style={[styles.methodActions, { borderTopColor: colors.border }]}>
-                {!method.isDefault && (
+                {defaultMethodId !== method.id && (
                   <TouchableOpacity
                     style={styles.actionButton}
                     onPress={() => handleSetDefault(method.id)}
@@ -174,7 +215,8 @@ export default function PaymentMethodScreen() {
                 </TouchableOpacity>
               </View>
             </View>
-          ))}
+          ))
+          )}
         </View>
 
         <TouchableOpacity
@@ -215,6 +257,19 @@ const styles = StyleSheet.create({
   methodsList: {
     gap: 12,
     marginBottom: 24,
+  },
+  loadingState: {
+    alignItems: 'center',
+    paddingVertical: 16,
+    gap: 8,
+  },
+  loadingText: {
+    fontSize: 14,
+  },
+  emptyText: {
+    fontSize: 14,
+    textAlign: 'center',
+    paddingVertical: 12,
   },
   methodCard: {
     borderRadius: 16,

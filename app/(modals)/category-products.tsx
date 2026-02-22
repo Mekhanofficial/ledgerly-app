@@ -10,7 +10,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/context/ThemeContext';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useData } from '@/context/DataContext';
+import { type Product as InventoryProduct, useData } from '@/context/DataContext';
 import { ROLE_GROUPS } from '@/utils/roleAccess';
 import { useRoleGuard } from '@/hooks/useRoleGuard';
 
@@ -19,16 +19,17 @@ export default function CategoryProductsScreen() {
   const { category } = useLocalSearchParams();
   const { inventory } = useData();
   const { canAccess } = useRoleGuard(ROLE_GROUPS.business);
-  const [products, setProducts] = useState([]);
+  const categoryName = Array.isArray(category) ? category[0] : category;
+  const [products, setProducts] = useState<InventoryProduct[]>([]);
 
   useEffect(() => {
-    if (category) {
-      const categoryProducts = inventory.filter(item => item.category === category);
+    if (categoryName) {
+      const categoryProducts = inventory.filter(item => item.category === categoryName);
       setProducts(categoryProducts);
     }
-  }, [category, inventory]);
+  }, [categoryName, inventory]);
 
-  const getStatusColor = (status) => {
+  const getStatusColor = (status: string) => {
     switch (status) {
       case 'in-stock': return colors.success;
       case 'low-stock': return colors.warning;
@@ -37,7 +38,7 @@ export default function CategoryProductsScreen() {
     }
   };
 
-  const getStatusText = (status) => {
+  const getStatusText = (status: string) => {
     switch (status) {
       case 'in-stock': return 'In Stock';
       case 'low-stock': return 'Low Stock';
@@ -61,7 +62,7 @@ export default function CategoryProductsScreen() {
             <Ionicons name="arrow-back" size={24} color={colors.text} />
           </TouchableOpacity>
           <View style={styles.headerCenter}>
-            <Text style={[styles.categoryName, { color: colors.text }]}>{category}</Text>
+            <Text style={[styles.categoryName, { color: colors.text }]}>{categoryName || 'Category'}</Text>
             <Text style={[styles.productCount, { color: colors.textTertiary }]}>
               {products.length} products
             </Text>

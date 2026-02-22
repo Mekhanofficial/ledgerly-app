@@ -68,6 +68,7 @@ export default function ProductDetailScreen() {
         detail: 'Added to inventory',
         date: formatDateTime(product.createdAt),
         timestamp: new Date(product.createdAt).getTime(),
+        change: undefined,
       },
       {
         id: `${product.id}_updated`,
@@ -75,6 +76,7 @@ export default function ProductDetailScreen() {
         detail: 'Most recent update',
         date: formatDateTime(product.updatedAt),
         timestamp: new Date(product.updatedAt).getTime(),
+        change: undefined,
       },
     ];
 

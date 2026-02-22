@@ -150,15 +150,18 @@ export default function InvoiceDetailScreen() {
 
   const handleMarkAsPaid = async () => {
     try {
-      await updateInvoice(invoice.id, {
-        paidAmount: invoice.amount,
-        status: 'paid',
-      });
+      const remainingBalance = Math.max(0, Number(invoice.amount || 0) - Number(invoice.paidAmount || 0));
+      if (remainingBalance <= 0) {
+        Alert.alert('Info', 'Invoice is already fully paid');
+        return;
+      }
+
+      await recordPayment(invoice.id, remainingBalance);
       
       const updatedInvoice = getInvoiceById(id as string);
       setInvoice(updatedInvoice);
       
-      Alert.alert('Success', 'Invoice marked as paid');
+      Alert.alert('Success', 'Invoice marked as paid and receipt generated');
     } catch (error) {
       Alert.alert('Error', 'Failed to update invoice');
     }

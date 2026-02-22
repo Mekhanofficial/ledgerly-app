@@ -106,7 +106,7 @@ export default function CustomerTransactionsScreen() {
             key={`${transaction.type}-${transaction.id}`}
             style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}
             activeOpacity={0.8}
-            onPress={() => router.push(transaction.link)}
+            onPress={() => router.push(transaction.link as any)}
           >
             <View style={styles.cardTop}>
               <Text style={[styles.title, { color: colors.text }]}>{transaction.title}</Text>

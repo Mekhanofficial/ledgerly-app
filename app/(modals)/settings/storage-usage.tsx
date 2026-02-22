@@ -7,6 +7,7 @@ import {
   ScrollView,
   TouchableOpacity,
   Alert,
+  type DimensionValue,
 } from 'react-native';
 import { useTheme } from '@/context/ThemeContext';
 import { Ionicons } from '@expo/vector-icons';
@@ -216,7 +217,7 @@ export default function StorageUsageScreen() {
                 style={[
                   styles.meterFill, 
                   { 
-                    width: widthPercentage,
+                    width: widthPercentage as DimensionValue,
                     backgroundColor: percentage > 80 ? colors.error : colors.primary500,
                   }
                 ]} 
@@ -312,7 +313,7 @@ export default function StorageUsageScreen() {
                       style={[
                         styles.progressFill, 
                         { 
-                          width: itemWidth,
+                          width: itemWidth as DimensionValue,
                           backgroundColor: item.color,
                         }
                       ]} 

@@ -18,9 +18,10 @@ import ModalHeader from '@/components/ModalHeader';
 import TemplatePreviewModal from '@/components/templates/TemplatePreviewModal';
 
 type TemplateScope = 'invoice' | 'receipt';
+type TemplateTierTab = 'all' | 'STANDARD' | 'PREMIUM' | 'ELITE' | 'CUSTOM';
 
 const toGradientColor = (value?: number[], fallback?: string) => {
-  if (!value || value.length < 3) return fallback;
+  if (!value || value.length < 3) return fallback || '#0ea5e9';
   return `rgb(${value[0]}, ${value[1]}, ${value[2]})`;
 };
 
@@ -37,6 +38,7 @@ export default function TemplatesScreen() {
   } = useData();
 
   const [scope, setScope] = useState<TemplateScope>('invoice');
+  const [tierTab, setTierTab] = useState<TemplateTierTab>('all');
   const [loadingTemplateId, setLoadingTemplateId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [previewTemplate, setPreviewTemplate] = useState<Template | null>(null);
@@ -52,13 +54,41 @@ export default function TemplatesScreen() {
   const selectedTemplateId =
     scope === 'invoice' ? selectedInvoiceTemplate?.id : selectedReceiptTemplate?.id;
 
+  const categoryTabs = useMemo(() => {
+    const counts = {
+      all: visibleTemplates.length,
+      STANDARD: visibleTemplates.filter((t) => (t.category || 'STANDARD') === 'STANDARD').length,
+      PREMIUM: visibleTemplates.filter((t) => t.category === 'PREMIUM').length,
+      ELITE: visibleTemplates.filter((t) => t.category === 'ELITE').length,
+      CUSTOM: visibleTemplates.filter((t) => t.category === 'CUSTOM').length,
+    };
+
+    return [
+      { id: 'all' as const, label: 'All', count: counts.all },
+      { id: 'STANDARD' as const, label: 'Standard', count: counts.STANDARD },
+      { id: 'PREMIUM' as const, label: 'Premium', count: counts.PREMIUM },
+      { id: 'ELITE' as const, label: 'Elite', count: counts.ELITE },
+      { id: 'CUSTOM' as const, label: 'Custom', count: counts.CUSTOM },
+    ];
+  }, [visibleTemplates]);
+
   const groupedTemplates = useMemo(() => {
-    return [...visibleTemplates].sort((a, b) => {
+    const filtered = visibleTemplates.filter((template) => {
+      if (tierTab === 'all') return true;
+      return (template.category || 'STANDARD') === tierTab;
+    });
+
+    return [...filtered].sort((a, b) => {
+      const categoryOrder = { STANDARD: 0, PREMIUM: 1, ELITE: 2, CUSTOM: 3 } as Record<string, number>;
+      const categoryDiff =
+        (categoryOrder[a.category || 'STANDARD'] ?? 99) -
+        (categoryOrder[b.category || 'STANDARD'] ?? 99);
+      if (categoryDiff !== 0) return categoryDiff;
       const premiumScore = (b.isPremium ? 1 : 0) - (a.isPremium ? 1 : 0);
       if (premiumScore !== 0) return premiumScore;
       return (b.isDefault ? 1 : 0) - (a.isDefault ? 1 : 0);
     });
-  }, [visibleTemplates]);
+  }, [visibleTemplates, tierTab]);
 
   const handleSelect = async (template: Template) => {
     if (template.isPremium && !template.hasAccess) {
@@ -144,6 +174,44 @@ export default function TemplatesScreen() {
       </View>
 
       <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.tierTabsContent}
+        style={styles.tierTabsScroll}
+      >
+        {categoryTabs.map((tab) => {
+          const isActive = tierTab === tab.id;
+          return (
+            <TouchableOpacity
+              key={tab.id}
+              style={[
+                styles.tierTabButton,
+                {
+                  backgroundColor: isActive ? colors.primary500 : colors.surface,
+                  borderColor: isActive ? colors.primary500 : colors.border,
+                },
+              ]}
+              onPress={() => setTierTab(tab.id)}
+            >
+              <Text style={[styles.tierTabText, { color: isActive ? 'white' : colors.text }]}>
+                {tab.label}
+              </Text>
+              <View
+                style={[
+                  styles.tierTabCount,
+                  { backgroundColor: isActive ? 'rgba(255,255,255,0.2)' : colors.card },
+                ]}
+              >
+                <Text style={[styles.tierTabCountText, { color: isActive ? 'white' : colors.textTertiary }]}>
+                  {tab.count}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
+
+      <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
         refreshControl={
@@ -193,7 +261,7 @@ export default function TemplatesScreen() {
                     {template.isPremium && renderBadge('Premium', 'rgba(255,255,255,0.2)', 'white')}
                   </View>
                   <Text style={styles.previewSubtitle}>
-                    {template.category?.toUpperCase() || 'STANDARD'}
+                    {template.category || 'STANDARD'}
                   </Text>
                   {template.layout?.showWatermark && (
                     <Text style={styles.previewWatermark}>{template.layout.watermarkText || 'PREMIUM'}</Text>
@@ -282,6 +350,38 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     gap: 12,
     marginBottom: 12,
+  },
+  tierTabsScroll: {
+    marginBottom: 10,
+  },
+  tierTabsContent: {
+    paddingHorizontal: 16,
+    gap: 10,
+  },
+  tierTabButton: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  tierTabText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  tierTabCount: {
+    minWidth: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 6,
+  },
+  tierTabCountText: {
+    fontSize: 11,
+    fontWeight: '700',
   },
   scopeButton: {
     flex: 1,

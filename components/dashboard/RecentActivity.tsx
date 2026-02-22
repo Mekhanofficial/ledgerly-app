@@ -19,7 +19,11 @@ interface ActivityItem {
   dataId?: string; // Reference to actual data ID
 }
 
-export default function RecentActivity() {
+interface RecentActivityProps {
+  activities?: unknown[];
+}
+
+export default function RecentActivity({ activities: _externalActivities }: RecentActivityProps = {}) {
   const { colors } = useTheme();
   const { user } = useUser();
   const currencyCode = resolveCurrencyCode(user || undefined);
@@ -261,7 +265,7 @@ export default function RecentActivity() {
       case 'draft': return 'Draft';
       case 'completed': return 'Completed';
       case 'refunded': return 'Refunded';
-      default: return status.charAt(0).toUpperCase() + status.slice(1);
+      default: return String(status).charAt(0).toUpperCase() + String(status).slice(1);
     }
   };
 

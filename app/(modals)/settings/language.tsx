@@ -1,182 +1,258 @@
-// app/(modals)/settings/language.tsx
-import React, { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
+  ActivityIndicator,
   Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { useTheme } from '@/context/ThemeContext';
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useRouter } from 'expo-router';
+import { useTheme } from '@/context/ThemeContext';
+import { useUser } from '@/context/UserContext';
+import {
+  saveLocalPreferences,
+  syncPreferencesFromBackend,
+  updatePreferences,
+} from '@/services/preferencesService';
 
-interface Language {
+type PlanTier = 'starter' | 'professional' | 'enterprise';
+
+type Language = {
   code: string;
   name: string;
   nativeName: string;
-  flag: string;
-}
+  region: string;
+  badge: string;
+  minPlan: PlanTier;
+};
+
+const LANGUAGES: Language[] = [
+  { code: 'en-US', name: 'English', nativeName: 'English', region: 'United States', badge: 'US', minPlan: 'starter' },
+  { code: 'es-ES', name: 'Spanish', nativeName: 'Espanol', region: 'Spain', badge: 'ES', minPlan: 'professional' },
+  { code: 'fr-FR', name: 'French', nativeName: 'Francais', region: 'France', badge: 'FR', minPlan: 'professional' },
+  { code: 'de-DE', name: 'German', nativeName: 'Deutsch', region: 'Germany', badge: 'DE', minPlan: 'professional' },
+  { code: 'pt-BR', name: 'Portuguese (Brazil)', nativeName: 'Portugues (BR)', region: 'Brazil', badge: 'BR', minPlan: 'professional' },
+  { code: 'zh-CN', name: 'Chinese (Simplified)', nativeName: 'Simplified Chinese', region: 'China', badge: 'CN', minPlan: 'enterprise' },
+  { code: 'ja-JP', name: 'Japanese', nativeName: 'Japanese', region: 'Japan', badge: 'JP', minPlan: 'enterprise' },
+  { code: 'ko-KR', name: 'Korean', nativeName: 'Korean', region: 'South Korea', badge: 'KR', minPlan: 'enterprise' },
+  { code: 'ar-SA', name: 'Arabic', nativeName: 'Arabic', region: 'Saudi Arabia', badge: 'SA', minPlan: 'enterprise' },
+  { code: 'ru-RU', name: 'Russian', nativeName: 'Russian', region: 'Russia', badge: 'RU', minPlan: 'enterprise' },
+];
+
+const PLAN_ORDER: PlanTier[] = ['starter', 'professional', 'enterprise'];
+
+const normalizePlan = (value?: string, status?: string): PlanTier => {
+  const statusKey = String(status || '').toLowerCase();
+  if (statusKey === 'expired') return 'starter';
+  const planKey = String(value || 'starter').trim().toLowerCase();
+  if (planKey === 'enterprise') return 'enterprise';
+  if (planKey === 'professional') return 'professional';
+  return 'starter';
+};
+
+const canAccessLanguage = (userPlan: PlanTier, language: Language) =>
+  PLAN_ORDER.indexOf(userPlan) >= PLAN_ORDER.indexOf(language.minPlan);
+
+const labelForPlan = (plan: PlanTier) => plan.charAt(0).toUpperCase() + plan.slice(1);
 
 export default function LanguageScreen() {
   const { colors } = useTheme();
+  const { user } = useUser();
+  const router = useRouter();
   const [selectedLanguage, setSelectedLanguage] = useState('en-US');
-  const [languages, setLanguages] = useState<Language[]>([
-    { code: 'en-US', name: 'English', nativeName: 'English', flag: '🇺🇸' },
-    { code: 'es-ES', name: 'Spanish', nativeName: 'Español', flag: '🇪🇸' },
-    { code: 'fr-FR', name: 'French', nativeName: 'Français', flag: '🇫🇷' },
-    { code: 'de-DE', name: 'German', nativeName: 'Deutsch', flag: '🇩🇪' },
-    { code: 'zh-CN', name: 'Chinese (Simplified)', nativeName: '简体中文', flag: '🇨🇳' },
-    { code: 'ja-JP', name: 'Japanese', nativeName: '日本語', flag: '🇯🇵' },
-    { code: 'ko-KR', name: 'Korean', nativeName: '한국어', flag: '🇰🇷' },
-    { code: 'ar-SA', name: 'Arabic', nativeName: 'العربية', flag: '🇸🇦' },
-    { code: 'pt-BR', name: 'Portuguese (Brazil)', nativeName: 'Português', flag: '🇧🇷' },
-    { code: 'ru-RU', name: 'Russian', nativeName: 'Русский', flag: '🇷🇺' },
-  ]);
+  const [loading, setLoading] = useState(true);
+  const [savingLanguage, setSavingLanguage] = useState<string | null>(null);
+
+  const planTier = useMemo(
+    () =>
+      normalizePlan(
+        user?.business?.subscription?.plan,
+        user?.business?.subscription?.status
+      ),
+    [user?.business?.subscription?.plan, user?.business?.subscription?.status]
+  );
+
+  const activeLanguage = useMemo(
+    () => LANGUAGES.find((language) => language.code === selectedLanguage) || LANGUAGES[0],
+    [selectedLanguage]
+  );
 
   useEffect(() => {
-    loadLanguage();
-  }, []);
-
-  const loadLanguage = async () => {
-    try {
-      const saved = await AsyncStorage.getItem('selectedLanguage');
-      if (saved) {
-        setSelectedLanguage(saved);
+    const load = async () => {
+      try {
+        setLoading(true);
+        const prefs = await syncPreferencesFromBackend();
+        setSelectedLanguage(prefs.language || 'en-US');
+      } catch (error) {
+        console.error('Failed to load language settings:', error);
+      } finally {
+        setLoading(false);
       }
-    } catch (error) {
-      console.error('Error loading language:', error);
-    }
-  };
+    };
+
+    load();
+  }, []);
 
   const saveLanguage = async (languageCode: string) => {
     try {
-      await AsyncStorage.setItem('selectedLanguage', languageCode);
+      setSavingLanguage(languageCode);
       setSelectedLanguage(languageCode);
-    } catch (error) {
-      console.error('Error saving language:', error);
+      await saveLocalPreferences({ language: languageCode });
+      await updatePreferences({ language: languageCode });
+      Alert.alert('Language Updated', `${languageCode} has been saved and synced to your backend settings.`);
+    } catch (error: any) {
+      console.error('Failed to save language:', error);
+      Alert.alert(
+        'Saved Locally',
+        error?.message
+          ? `Language saved on this device, but backend sync failed: ${error.message}`
+          : 'Language saved on this device, but backend sync failed.'
+      );
+    } finally {
+      setSavingLanguage(null);
     }
   };
 
-  const handleLanguageSelect = (languageCode: string) => {
+  const requestLanguageChange = (language: Language) => {
+    const allowed = canAccessLanguage(planTier, language);
+
+    if (!allowed) {
+      const requiredPlanLabel = labelForPlan(language.minPlan);
+      Alert.alert(
+        'Upgrade Required',
+        `${language.name} is available on ${requiredPlanLabel} plan${language.minPlan === 'enterprise' ? ' (Enterprise unlocks all languages)' : ' and above'}.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'View Plans',
+            onPress: () => router.push('/(modals)/settings/billing-plan'),
+          },
+        ]
+      );
+      return;
+    }
+
     Alert.alert(
       'Change Language',
-      'Changing the language will restart the app. Do you want to continue?',
+      `Set app language to ${language.name}?`,
       [
         { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Change',
-          onPress: () => {
-            saveLanguage(languageCode);
-            Alert.alert(
-              'Language Changed',
-              'The app will restart to apply the new language.',
-              [{ text: 'OK', onPress: () => {} }]
-            );
-          },
-        },
+        { text: 'Change', onPress: () => saveLanguage(language.code) },
       ]
     );
   };
 
+  if (loading) {
+    return (
+      <View style={[styles.centerState, { backgroundColor: colors.background }]}>
+        <ActivityIndicator color={colors.primary500} />
+        <Text style={[styles.centerStateText, { color: colors.textTertiary }]}>
+          Loading language settings...
+        </Text>
+      </View>
+    );
+  }
+
   return (
-    <ScrollView style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={styles.content}>
-        <View style={[styles.currentLanguage, { backgroundColor: colors.primary50, borderColor: colors.primary100 }]}>
-          <View style={styles.currentLanguageHeader}>
-            <Text style={[styles.currentLanguageTitle, { color: colors.text }]}>
-              Current Language
-            </Text>
-            <View style={[styles.currentLanguageBadge, { backgroundColor: colors.primary500 }]}>
-              <Text style={styles.currentLanguageBadgeText}>Active</Text>
-            </View>
-          </View>
-          
-          <View style={styles.currentLanguageContent}>
-            <Text style={[styles.currentLanguageFlag, { fontSize: 32 }]}>
-              {languages.find(l => l.code === selectedLanguage)?.flag}
-            </Text>
-            <View>
-              <Text style={[styles.currentLanguageName, { color: colors.text }]}>
-                {languages.find(l => l.code === selectedLanguage)?.name}
-              </Text>
-              <Text style={[styles.currentLanguageNative, { color: colors.textTertiary }]}>
-                {languages.find(l => l.code === selectedLanguage)?.nativeName}
-              </Text>
-            </View>
+    <ScrollView style={[styles.container, { backgroundColor: colors.background }]} contentContainerStyle={styles.content}>
+      <View style={[styles.heroCard, { backgroundColor: colors.primary50, borderColor: colors.primary100 }]}>
+        <View style={styles.heroHeader}>
+          <Text style={[styles.heroTitle, { color: colors.text }]}>Current Language</Text>
+          <View style={[styles.planChip, { backgroundColor: colors.primary500 }]}>
+            <Text style={styles.planChipText}>{labelForPlan(planTier)}</Text>
           </View>
         </View>
 
-        <View style={styles.languagesList}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>
-            Available Languages
-          </Text>
-          <Text style={[styles.sectionDescription, { color: colors.textTertiary }]}>
-            Select your preferred language for the app interface
-          </Text>
+        <View style={styles.heroRow}>
+          <View style={[styles.badgeCircle, { backgroundColor: colors.primary500 }]}>
+            <Text style={styles.badgeCircleText}>{activeLanguage.badge}</Text>
+          </View>
+          <View style={styles.heroDetails}>
+            <Text style={[styles.heroLanguageName, { color: colors.text }]}>{activeLanguage.name}</Text>
+            <Text style={[styles.heroLanguageNative, { color: colors.textTertiary }]}>
+              {activeLanguage.nativeName}
+            </Text>
+            <Text style={[styles.heroLanguageRegion, { color: colors.textSecondary }]}>
+              {activeLanguage.region}
+            </Text>
+          </View>
+        </View>
+      </View>
 
-          {languages.map((language) => (
+      <View style={[styles.infoCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <Ionicons name="shield-checkmark-outline" size={18} color={colors.primary500} />
+        <View style={styles.infoBody}>
+          <Text style={[styles.infoTitle, { color: colors.text }]}>Language Access by Plan</Text>
+          <Text style={[styles.infoText, { color: colors.textSecondary }]}>
+            Starter: English only. Professional: core business languages. Enterprise: all available languages.
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={[styles.sectionTitle, { color: colors.text }]}>Available Languages</Text>
+        <Text style={[styles.sectionSubtitle, { color: colors.textTertiary }]}>
+          Language preference syncs with backend settings.
+        </Text>
+
+        {LANGUAGES.map((language) => {
+          const selected = selectedLanguage === language.code;
+          const locked = !canAccessLanguage(planTier, language);
+          const saving = savingLanguage === language.code;
+
+          return (
             <TouchableOpacity
               key={language.code}
               style={[
                 styles.languageCard,
-                { 
-                  backgroundColor: colors.surface,
-                  borderColor: colors.border,
-                },
-                selectedLanguage === language.code && {
-                  borderColor: colors.primary500,
-                  backgroundColor: colors.primary50,
-                }
+                { backgroundColor: colors.surface, borderColor: colors.border },
+                selected && { borderColor: colors.primary500, backgroundColor: colors.primary50 },
+                locked && { opacity: 0.8 },
               ]}
-              onPress={() => handleLanguageSelect(language.code)}
+              onPress={() => requestLanguageChange(language)}
+              disabled={Boolean(savingLanguage)}
             >
               <View style={styles.languageLeft}>
-                <Text style={[styles.languageFlag, { fontSize: 24 }]}>
-                  {language.flag}
-                </Text>
-                <View>
-                  <Text style={[styles.languageName, { color: colors.text }]}>
-                    {language.name}
-                  </Text>
-                  <Text style={[styles.languageNative, { color: colors.textTertiary }]}>
-                    {language.nativeName}
+                <View
+                  style={[
+                    styles.languageBadge,
+                    { backgroundColor: locked ? colors.border : selected ? colors.primary500 : colors.primary100 },
+                  ]}
+                >
+                  <Text style={[styles.languageBadgeText, { color: locked ? colors.textTertiary : selected ? 'white' : colors.primary500 }]}>
+                    {language.badge}
                   </Text>
                 </View>
+                <View style={styles.languageTextWrap}>
+                  <Text style={[styles.languageName, { color: colors.text }]}>{language.name}</Text>
+                  <Text style={[styles.languageNative, { color: colors.textTertiary }]}>{language.nativeName}</Text>
+                  <View style={styles.metaRow}>
+                    <Text style={[styles.languageRegion, { color: colors.textSecondary }]}>{language.region}</Text>
+                    <Text style={[styles.dot, { color: colors.textTertiary }]}>•</Text>
+                    <Text style={[styles.requiredPlanText, { color: locked ? colors.warning : colors.textTertiary }]}>
+                      {language.minPlan === 'starter' ? 'Included' : `${labelForPlan(language.minPlan)}+`}
+                    </Text>
+                  </View>
+                </View>
               </View>
-              
-              {selectedLanguage === language.code ? (
-                <Ionicons name="checkmark-circle" size={24} color={colors.primary500} />
-              ) : (
-                <Ionicons name="chevron-forward" size={20} color={colors.textTertiary} />
-              )}
+
+              <View style={styles.languageRight}>
+                {saving ? (
+                  <ActivityIndicator size="small" color={colors.primary500} />
+                ) : selected ? (
+                  <Ionicons name="checkmark-circle" size={22} color={colors.primary500} />
+                ) : locked ? (
+                  <Ionicons name="lock-closed" size={18} color={colors.warning} />
+                ) : (
+                  <Ionicons name="chevron-forward" size={18} color={colors.textTertiary} />
+                )}
+              </View>
             </TouchableOpacity>
-          ))}
-        </View>
-
-        <View style={[styles.noteCard, { backgroundColor: colors.surface }]}>
-          <Ionicons name="information-circle-outline" size={24} color={colors.primary500} />
-          <View style={styles.noteContent}>
-            <Text style={[styles.noteTitle, { color: colors.text }]}>
-              Language Support
-            </Text>
-            <Text style={[styles.noteText, { color: colors.textSecondary }]}>
-              Some features may not be fully translated in all languages. 
-              English will be used as fallback for untranslated content.
-            </Text>
-          </View>
-        </View>
-
-        <TouchableOpacity
-          style={[styles.helpButton, { borderColor: colors.border }]}
-          onPress={() => Alert.alert('Help', 'Contact support for language-related issues')}
-        >
-          <Ionicons name="help-circle-outline" size={20} color={colors.textSecondary} />
-          <Text style={[styles.helpButtonText, { color: colors.textSecondary }]}>
-            Need help with language selection?
-          </Text>
-        </TouchableOpacity>
+          );
+        })}
       </View>
     </ScrollView>
   );
@@ -187,127 +263,165 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    padding: 20,
+    padding: 16,
+    paddingBottom: 28,
+    gap: 16,
   },
-  currentLanguage: {
-    padding: 20,
-    borderRadius: 16,
-    borderWidth: 1,
-    marginBottom: 24,
-  },
-  currentLanguageHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  centerState: {
+    flex: 1,
     alignItems: 'center',
-    marginBottom: 16,
+    justifyContent: 'center',
+    gap: 10,
+    padding: 20,
   },
-  currentLanguageTitle: {
+  centerStateText: {
+    fontSize: 14,
+  },
+  heroCard: {
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 16,
+    gap: 12,
+  },
+  heroHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  heroTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  planChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+  },
+  planChipText: {
+    color: 'white',
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+  },
+  heroRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  badgeCircle: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  badgeCircleText: {
+    color: 'white',
+    fontWeight: '700',
+    fontSize: 18,
+  },
+  heroDetails: {
+    flex: 1,
+    gap: 2,
+  },
+  heroLanguageName: {
     fontSize: 18,
     fontWeight: '700',
   },
-  currentLanguageBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
+  heroLanguageNative: {
+    fontSize: 13,
   },
-  currentLanguageBadgeText: {
-    color: 'white',
+  heroLanguageRegion: {
     fontSize: 12,
+  },
+  infoCard: {
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  infoBody: {
+    flex: 1,
+    gap: 2,
+  },
+  infoTitle: {
+    fontSize: 14,
     fontWeight: '600',
   },
-  currentLanguageContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 16,
+  infoText: {
+    fontSize: 12,
+    lineHeight: 17,
   },
-  currentLanguageFlag: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    textAlign: 'center',
-    lineHeight: 48,
-  },
-  currentLanguageName: {
-    fontSize: 20,
-    fontWeight: '700',
-    marginBottom: 4,
-  },
-  currentLanguageNative: {
-    fontSize: 16,
-  },
-  languagesList: {
-    marginBottom: 24,
+  section: {
+    gap: 8,
   },
   sectionTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '700',
-    marginBottom: 8,
   },
-  sectionDescription: {
-    fontSize: 14,
-    marginBottom: 20,
+  sectionSubtitle: {
+    fontSize: 13,
+    marginBottom: 4,
   },
   languageCard: {
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 12,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    marginBottom: 12,
+    gap: 10,
   },
   languageLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 10,
     flex: 1,
   },
-  languageFlag: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    textAlign: 'center',
-    lineHeight: 40,
-  },
-  languageName: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  languageNative: {
-    fontSize: 14,
-  },
-  noteCard: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    padding: 16,
-    borderRadius: 12,
-    gap: 12,
-    marginBottom: 24,
-  },
-  noteContent: {
-    flex: 1,
-  },
-  noteTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  noteText: {
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  helpButton: {
-    flexDirection: 'row',
+  languageBadge: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    gap: 8,
   },
-  helpButtonText: {
-    fontSize: 14,
-    fontWeight: '500',
+  languageBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  languageTextWrap: {
+    flex: 1,
+  },
+  languageName: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  languageNative: {
+    fontSize: 12,
+    marginTop: 1,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 3,
+  },
+  languageRegion: {
+    fontSize: 11,
+  },
+  dot: {
+    fontSize: 11,
+  },
+  requiredPlanText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  languageRight: {
+    minWidth: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

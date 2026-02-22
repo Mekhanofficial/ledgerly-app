@@ -268,7 +268,7 @@ export default function ScheduleReportScreen() {
           {isScheduling ? (
             <ActivityIndicator color="white" />
           ) : (
-            <Ionicons name="calendar-check-outline" size={20} color="white" />
+            <Ionicons name="calendar-outline" size={20} color="white" />
           )}
           <Text style={styles.scheduleButtonText}>
             {isScheduling ? 'Scheduling...' : 'Schedule Report'}
@@ -419,6 +419,14 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: 'center',
     paddingVertical: 12,
+  },
+  listTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  listMeta: {
+    fontSize: 12,
+    marginTop: 2,
   },
   scheduleCard: {
     width: '100%',

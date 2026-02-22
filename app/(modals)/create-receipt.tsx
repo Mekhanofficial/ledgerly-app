@@ -588,7 +588,7 @@ export default function CreateReceiptScreen() {
       };
 
       // Add receipt to database - try addReceipt first, fall back to createReceipt
-      let receiptId;
+      let receiptId: string;
       if (addReceipt) {
         receiptId = await addReceipt(receiptData);
       } else if (createReceipt) {
@@ -631,7 +631,7 @@ export default function CreateReceiptScreen() {
         [
           { 
             text: 'View Receipt', 
-            onPress: () => router.push(`/(modals)/receipt-detail?id=${receiptId}`)
+            onPress: () => router.push(`/(modals)/receipt-detail?id=${receiptId}` as any)
           },
           { 
             text: 'Create Another', 

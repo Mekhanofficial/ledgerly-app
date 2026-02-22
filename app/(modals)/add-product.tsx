@@ -225,7 +225,7 @@ export default function AddProductScreen() {
           </TouchableOpacity>
           <Text style={[styles.title, { color: colors.text }]}>Add Product</Text>
           <TouchableOpacity onPress={handleSaveProduct} disabled={loading}>
-            <Text style={[styles.saveButton, { color: loading ? colors.textTertiary : colors.primary500 }]}>
+            <Text style={[styles.saveHeaderText, { color: loading ? colors.textTertiary : colors.primary500 }]}>
               {loading ? 'Saving...' : 'Save'}
             </Text>
           </TouchableOpacity>
@@ -641,7 +641,7 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: '700',
   },
-  saveButton: {
+  saveHeaderText: {
     fontSize: 16,
     fontWeight: '600',
   },

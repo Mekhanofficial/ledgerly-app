@@ -87,7 +87,7 @@ export default function NotificationPreferenceScreen() {
       case 'invoice': return colors.primary500;
       case 'inventory': return colors.warning;
       case 'system': return colors.info;
-      case 'marketing': return colors.secondary500;
+      case 'marketing': return colors.primary400;
       default: return colors.primary500;
     }
   };

@@ -21,7 +21,11 @@ interface AlertItem {
   time: string;
 }
 
-export default function Alerts() {
+interface AlertsProps {
+  alerts?: unknown[];
+}
+
+export default function Alerts({ alerts: _externalAlerts }: AlertsProps = {}) {
   const { colors } = useTheme();
   const { user } = useUser();
   const currencyCode = resolveCurrencyCode(user || undefined);

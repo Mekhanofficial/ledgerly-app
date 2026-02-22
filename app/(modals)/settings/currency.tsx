@@ -1,251 +1,305 @@
-// app/(modals)/settings/currency.tsx
-import React, { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
+  ActivityIndicator,
   Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { useTheme } from '@/context/ThemeContext';
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useTheme } from '@/context/ThemeContext';
+import { useUser } from '@/context/UserContext';
+import {
+  loadLocalCurrency,
+  saveLocalCurrency,
+  saveLocalPreferences,
+  syncPreferencesFromBackend,
+  updateBusinessCurrency,
+  updatePreferences,
+} from '@/services/preferencesService';
 
-interface Currency {
+type CurrencyOption = {
   code: string;
   name: string;
-  symbol: string;
   country: string;
-}
+};
+
+const CURRENCIES: CurrencyOption[] = [
+  { code: 'USD', name: 'US Dollar', country: 'United States' },
+  { code: 'EUR', name: 'Euro', country: 'European Union' },
+  { code: 'GBP', name: 'British Pound', country: 'United Kingdom' },
+  { code: 'JPY', name: 'Japanese Yen', country: 'Japan' },
+  { code: 'CAD', name: 'Canadian Dollar', country: 'Canada' },
+  { code: 'AUD', name: 'Australian Dollar', country: 'Australia' },
+  { code: 'CHF', name: 'Swiss Franc', country: 'Switzerland' },
+  { code: 'CNY', name: 'Chinese Yuan', country: 'China' },
+  { code: 'INR', name: 'Indian Rupee', country: 'India' },
+  { code: 'BRL', name: 'Brazilian Real', country: 'Brazil' },
+  { code: 'MXN', name: 'Mexican Peso', country: 'Mexico' },
+  { code: 'ZAR', name: 'South African Rand', country: 'South Africa' },
+];
+
+const getCurrencySymbol = (code: string) => {
+  try {
+    const parts = new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: code,
+      currencyDisplay: 'narrowSymbol',
+    }).formatToParts(1);
+    return parts.find((part) => part.type === 'currency')?.value || code;
+  } catch {
+    return code;
+  }
+};
+
+const formatMoney = (code: string, decimalPlaces: number) => {
+  const amount = 1234.56;
+  try {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: code,
+      minimumFractionDigits: decimalPlaces,
+      maximumFractionDigits: decimalPlaces,
+    }).format(amount);
+  } catch {
+    return `${code} ${amount.toFixed(decimalPlaces)}`;
+  }
+};
 
 export default function CurrencyScreen() {
   const { colors } = useTheme();
+  const { user, refreshUser } = useUser();
   const [selectedCurrency, setSelectedCurrency] = useState('USD');
-  const [currencies, setCurrencies] = useState<Currency[]>([
-    { code: 'USD', name: 'US Dollar', symbol: '$', country: 'United States' },
-    { code: 'EUR', name: 'Euro', symbol: '€', country: 'European Union' },
-    { code: 'GBP', name: 'British Pound', symbol: '£', country: 'United Kingdom' },
-    { code: 'JPY', name: 'Japanese Yen', symbol: '¥', country: 'Japan' },
-    { code: 'CAD', name: 'Canadian Dollar', symbol: 'C$', country: 'Canada' },
-    { code: 'AUD', name: 'Australian Dollar', symbol: 'A$', country: 'Australia' },
-    { code: 'CHF', name: 'Swiss Franc', symbol: 'CHF', country: 'Switzerland' },
-    { code: 'CNY', name: 'Chinese Yuan', symbol: '¥', country: 'China' },
-    { code: 'INR', name: 'Indian Rupee', symbol: '₹', country: 'India' },
-    { code: 'BRL', name: 'Brazilian Real', symbol: 'R$', country: 'Brazil' },
-    { code: 'MXN', name: 'Mexican Peso', symbol: 'MX$', country: 'Mexico' },
-    { code: 'ZAR', name: 'South African Rand', symbol: 'R', country: 'South Africa' },
-  ]);
+  const [decimalPlaces, setDecimalPlaces] = useState(2);
+  const [loading, setLoading] = useState(true);
+  const [savingCurrency, setSavingCurrency] = useState<string | null>(null);
+  const [savingDecimals, setSavingDecimals] = useState(false);
+
+  const currentCurrencyMeta = useMemo(
+    () => CURRENCIES.find((item) => item.code === selectedCurrency) || CURRENCIES[0],
+    [selectedCurrency]
+  );
 
   useEffect(() => {
-    loadCurrency();
-  }, []);
+    const load = async () => {
+      try {
+        setLoading(true);
+        const [localCurrency, preferences] = await Promise.all([
+          loadLocalCurrency(),
+          syncPreferencesFromBackend(),
+        ]);
 
-  const loadCurrency = async () => {
-    try {
-      const saved = await AsyncStorage.getItem('selectedCurrency');
-      if (saved) {
-        setSelectedCurrency(saved);
+        const backendCurrency = String(user?.business?.currency || '').trim().toUpperCase();
+        setSelectedCurrency(backendCurrency || localCurrency || 'USD');
+        setDecimalPlaces(preferences.currencyDecimalPlaces ?? 2);
+      } catch (error) {
+        console.error('Failed to load currency settings:', error);
+      } finally {
+        setLoading(false);
       }
-    } catch (error) {
-      console.error('Error loading currency:', error);
-    }
-  };
+    };
 
-  const saveCurrency = async (currencyCode: string) => {
+    load();
+  }, [user?.business?.currency]);
+
+  const persistCurrency = async (currencyCode: string) => {
+    const nextCode = String(currencyCode || '').trim().toUpperCase();
     try {
-      await AsyncStorage.setItem('selectedCurrency', currencyCode);
-      setSelectedCurrency(currencyCode);
-      
+      setSavingCurrency(nextCode);
+      setSelectedCurrency(nextCode);
+      await saveLocalCurrency(nextCode);
+      await updateBusinessCurrency(nextCode);
+      await refreshUser();
       Alert.alert(
         'Currency Updated',
-        `Currency has been changed to ${currencyCode}. Existing transactions will not be converted.`,
-        [{ text: 'OK' }]
+        `Business currency set to ${nextCode}. Existing invoices and receipts keep their original currency.`
       );
-    } catch (error) {
-      console.error('Error saving currency:', error);
+    } catch (error: any) {
+      console.error('Failed to sync currency:', error);
+      Alert.alert(
+        'Saved Locally',
+        error?.message
+          ? `Updated on this device, but backend sync failed: ${error.message}`
+          : 'Updated on this device, but backend sync failed.'
+      );
+    } finally {
+      setSavingCurrency(null);
     }
   };
 
-  const handleCurrencySelect = (currencyCode: string) => {
+  const persistDecimalPlaces = async (value: number) => {
+    try {
+      setSavingDecimals(true);
+      setDecimalPlaces(value);
+      await saveLocalPreferences({ currencyDecimalPlaces: value });
+      await updatePreferences({ currencyDecimalPlaces: value });
+    } catch (error: any) {
+      console.error('Failed to sync decimal places:', error);
+      Alert.alert(
+        'Saved Locally',
+        error?.message
+          ? `Decimal places saved on this device, but backend sync failed: ${error.message}`
+          : 'Decimal places saved on this device, but backend sync failed.'
+      );
+    } finally {
+      setSavingDecimals(false);
+    }
+  };
+
+  const confirmCurrencyChange = (currencyCode: string) => {
+    if (savingCurrency) return;
     Alert.alert(
       'Change Currency',
-      `Change currency to ${currencyCode}? Note: Existing transactions will keep their original currency.`,
+      `Change business currency to ${currencyCode}? Existing transactions will not be converted.`,
       [
         { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Change',
-          onPress: () => saveCurrency(currencyCode),
-        },
+        { text: 'Change', onPress: () => persistCurrency(currencyCode) },
       ]
     );
   };
 
-  const getCurrencyExample = (symbol: string) => {
-    const amount = 1234.56;
-    return `${symbol}${amount.toLocaleString()}`;
-  };
+  if (loading) {
+    return (
+      <View style={[styles.centerState, { backgroundColor: colors.background }]}>
+        <ActivityIndicator color={colors.primary500} />
+        <Text style={[styles.centerStateText, { color: colors.textTertiary }]}>
+          Loading currency settings...
+        </Text>
+      </View>
+    );
+  }
 
   return (
-    <ScrollView style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={styles.content}>
-        <View style={[styles.currentCurrency, { backgroundColor: colors.primary50, borderColor: colors.primary100 }]}>
-          <Text style={[styles.currentCurrencyTitle, { color: colors.text }]}>
-            Current Currency
-          </Text>
-          
-          <View style={styles.currentCurrencyContent}>
-            <View style={[styles.currencySymbol, { backgroundColor: colors.primary500 }]}>
-              <Text style={styles.currencySymbolText}>
-                {currencies.find(c => c.code === selectedCurrency)?.symbol}
-              </Text>
-            </View>
-            <View style={styles.currentCurrencyInfo}>
-              <Text style={[styles.currencyCode, { color: colors.text }]}>
-                {selectedCurrency}
-              </Text>
-              <Text style={[styles.currencyName, { color: colors.textTertiary }]}>
-                {currencies.find(c => c.code === selectedCurrency)?.name}
-              </Text>
-              <Text style={[styles.currencyExample, { color: colors.textSecondary }]}>
-                Example: {getCurrencyExample(currencies.find(c => c.code === selectedCurrency)?.symbol || '$')}
-              </Text>
-            </View>
+    <ScrollView style={[styles.container, { backgroundColor: colors.background }]} contentContainerStyle={styles.content}>
+      <View style={[styles.heroCard, { backgroundColor: colors.primary50, borderColor: colors.primary100 }]}>
+        <Text style={[styles.heroLabel, { color: colors.text }]}>Current Business Currency</Text>
+        <View style={styles.heroRow}>
+          <View style={[styles.heroBadge, { backgroundColor: colors.primary500 }]}>
+            <Text style={styles.heroBadgeText}>{getCurrencySymbol(selectedCurrency)}</Text>
+          </View>
+          <View style={styles.heroDetails}>
+            <Text style={[styles.heroCode, { color: colors.text }]}>{selectedCurrency}</Text>
+            <Text style={[styles.heroName, { color: colors.textTertiary }]}>{currentCurrencyMeta.name}</Text>
+            <Text style={[styles.heroExample, { color: colors.textSecondary }]}>
+              Example: {formatMoney(selectedCurrency, decimalPlaces)}
+            </Text>
           </View>
         </View>
+      </View>
 
-        <View style={styles.currenciesList}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>
-            Available Currencies
-          </Text>
-          <Text style={[styles.sectionDescription, { color: colors.textTertiary }]}>
-            Select your preferred currency for displaying amounts
-          </Text>
+      <View style={styles.section}>
+        <Text style={[styles.sectionTitle, { color: colors.text }]}>Currency</Text>
+        <Text style={[styles.sectionSubtitle, { color: colors.textTertiary }]}>
+          Syncs with your business profile in Ledgerly backend.
+        </Text>
 
-          {currencies.map((currency) => (
+        {CURRENCIES.map((currency) => {
+          const isSelected = selectedCurrency === currency.code;
+          const isSaving = savingCurrency === currency.code;
+          return (
             <TouchableOpacity
               key={currency.code}
               style={[
-                styles.currencyCard,
-                { 
-                  backgroundColor: colors.surface,
-                  borderColor: colors.border,
-                },
-                selectedCurrency === currency.code && {
-                  borderColor: colors.primary500,
-                  backgroundColor: colors.primary50,
-                }
+                styles.itemCard,
+                { backgroundColor: colors.surface, borderColor: colors.border },
+                isSelected && { borderColor: colors.primary500, backgroundColor: colors.primary50 },
               ]}
-              onPress={() => handleCurrencySelect(currency.code)}
+              onPress={() => confirmCurrencyChange(currency.code)}
+              disabled={Boolean(savingCurrency)}
             >
-              <View style={styles.currencyLeft}>
-                <View style={[
-                  styles.currencySymbolSmall,
-                  { backgroundColor: selectedCurrency === currency.code ? colors.primary500 : colors.primary100 }
-                ]}>
-                  <Text style={[
-                    styles.currencySymbolTextSmall,
-                    { color: selectedCurrency === currency.code ? 'white' : colors.primary500 }
-                  ]}>
-                    {currency.symbol}
+              <View style={styles.itemLeft}>
+                <View
+                  style={[
+                    styles.symbolBadge,
+                    { backgroundColor: isSelected ? colors.primary500 : colors.primary100 },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.symbolBadgeText,
+                      { color: isSelected ? 'white' : colors.primary500 },
+                    ]}
+                  >
+                    {getCurrencySymbol(currency.code)}
                   </Text>
                 </View>
-                <View>
-                  <Text style={[styles.currencyCardCode, { color: colors.text }]}>
-                    {currency.code} - {currency.name}
+                <View style={styles.itemTextWrap}>
+                  <Text style={[styles.itemTitle, { color: colors.text }]}>
+                    {currency.code} • {currency.name}
                   </Text>
-                  <Text style={[styles.currencyCardCountry, { color: colors.textTertiary }]}>
-                    {currency.country}
-                  </Text>
+                  <Text style={[styles.itemSubtitle, { color: colors.textTertiary }]}>{currency.country}</Text>
                 </View>
               </View>
-              
-              <View style={styles.currencyRight}>
-                <Text style={[styles.currencyExampleSmall, { color: colors.textSecondary }]}>
-                  {getCurrencyExample(currency.symbol)}
+              <View style={styles.itemRight}>
+                <Text style={[styles.itemExample, { color: colors.textSecondary }]}>
+                  {formatMoney(currency.code, decimalPlaces)}
                 </Text>
-                {selectedCurrency === currency.code ? (
-                  <Ionicons name="checkmark-circle" size={24} color={colors.primary500} />
+                {isSaving ? (
+                  <ActivityIndicator size="small" color={colors.primary500} />
+                ) : isSelected ? (
+                  <Ionicons name="checkmark-circle" size={22} color={colors.primary500} />
                 ) : (
-                  <Ionicons name="chevron-forward" size={20} color={colors.textTertiary} />
+                  <Ionicons name="chevron-forward" size={18} color={colors.textTertiary} />
                 )}
               </View>
             </TouchableOpacity>
-          ))}
-        </View>
+          );
+        })}
+      </View>
 
-        <View style={[styles.noteCard, { backgroundColor: colors.surface }]}>
-          <Ionicons name="information-circle-outline" size={24} color={colors.primary500} />
-          <View style={styles.noteContent}>
-            <Text style={[styles.noteTitle, { color: colors.text }]}>
-              Important Note
-            </Text>
-            <Text style={[styles.noteText, { color: colors.textSecondary }]}>
-              Changing currency only affects how amounts are displayed. 
-              Existing transactions will not be converted to the new currency.
-              Use currency conversion features for actual exchange calculations.
-            </Text>
+      <View style={styles.section}>
+        <Text style={[styles.sectionTitle, { color: colors.text }]}>Format</Text>
+        <Text style={[styles.sectionSubtitle, { color: colors.textTertiary }]}>
+          Decimal places are stored in your synced app preferences.
+        </Text>
+
+        <View style={[styles.formatCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <View style={styles.formatRow}>
+            <Text style={[styles.formatLabel, { color: colors.text }]}>Decimal Places</Text>
+            <View style={styles.formatOptions}>
+              {[0, 2, 3].map((value) => {
+                const active = decimalPlaces === value;
+                return (
+                  <TouchableOpacity
+                    key={value}
+                    style={[
+                      styles.decimalButton,
+                      {
+                        backgroundColor: active ? colors.primary500 : colors.card,
+                        borderColor: active ? colors.primary500 : colors.border,
+                      },
+                    ]}
+                    onPress={() => persistDecimalPlaces(value)}
+                    disabled={savingDecimals}
+                  >
+                    <Text style={[styles.decimalButtonText, { color: active ? 'white' : colors.text }]}>
+                      {value}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
           </View>
-        </View>
 
-        <View style={styles.formatSection}>
-          <Text style={[styles.formatTitle, { color: colors.text }]}>
-            Format Options
+          <View style={[styles.divider, { backgroundColor: colors.border }]} />
+
+          <Text style={[styles.formatPreviewTitle, { color: colors.text }]}>Preview</Text>
+          <Text style={[styles.formatPreviewText, { color: colors.textTertiary }]}>
+            {formatMoney(selectedCurrency, decimalPlaces)}
           </Text>
-          
-          <View style={[styles.formatCard, { backgroundColor: colors.surface }]}>
-            <View style={styles.formatRow}>
-              <Text style={[styles.formatLabel, { color: colors.text }]}>
-                Decimal Places
-              </Text>
-              <View style={styles.formatOptions}>
-                <TouchableOpacity 
-                  style={[
-                    styles.formatOption,
-                    { backgroundColor: colors.card, borderColor: colors.border }
-                  ]}
-                >
-                  <Text style={[styles.formatOptionText, { color: colors.text }]}>2</Text>
-                </TouchableOpacity>
-                <TouchableOpacity 
-                  style={[
-                    styles.formatOption,
-                    { backgroundColor: colors.primary500, borderColor: colors.primary500 }
-                  ]}
-                >
-                  <Text style={[styles.formatOptionText, { color: 'white' }]}>3</Text>
-                </TouchableOpacity>
-                <TouchableOpacity 
-                  style={[
-                    styles.formatOption,
-                    { backgroundColor: colors.card, borderColor: colors.border }
-                  ]}
-                >
-                  <Text style={[styles.formatOptionText, { color: colors.text }]}>0</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-            
-            <View style={[styles.divider, { backgroundColor: colors.border }]} />
-            
-            <View style={styles.formatRow}>
-              <Text style={[styles.formatLabel, { color: colors.text }]}>
-                Format Examples
-              </Text>
-              <View style={styles.formatExamples}>
-                <Text style={[styles.formatExample, { color: colors.textTertiary }]}>
-                  $1,234.56 (With comma)
-                </Text>
-                <Text style={[styles.formatExample, { color: colors.textTertiary }]}>
-                  1234.56 (No comma)
-                </Text>
-                <Text style={[styles.formatExample, { color: colors.textTertiary }]}>
-                  1 234,56 (European)
-                </Text>
-              </View>
-            </View>
-          </View>
+          {savingDecimals && (
+            <Text style={[styles.syncText, { color: colors.textTertiary }]}>Saving format preference...</Text>
+          )}
         </View>
+      </View>
+
+      <View style={[styles.noteCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <Ionicons name="information-circle-outline" size={20} color={colors.primary500} />
+        <Text style={[styles.noteText, { color: colors.textSecondary }]}>
+          Changing the base business currency affects defaults for new documents. Existing invoices and receipts remain unchanged.
+        </Text>
       </View>
     </ScrollView>
   );
@@ -256,169 +310,172 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    padding: 20,
+    padding: 16,
+    paddingBottom: 28,
+    gap: 18,
   },
-  currentCurrency: {
+  centerState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
     padding: 20,
-    borderRadius: 16,
+    gap: 10,
+  },
+  centerStateText: {
+    fontSize: 14,
+  },
+  heroCard: {
     borderWidth: 1,
-    marginBottom: 24,
+    borderRadius: 16,
+    padding: 16,
+    gap: 12,
   },
-  currentCurrencyTitle: {
-    fontSize: 18,
+  heroLabel: {
+    fontSize: 14,
     fontWeight: '700',
-    marginBottom: 16,
   },
-  currentCurrencyContent: {
+  heroRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 16,
+    gap: 14,
   },
-  currencySymbol: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    justifyContent: 'center',
+  heroBadge: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  currencySymbolText: {
+  heroBadgeText: {
     color: 'white',
-    fontSize: 32,
-    fontWeight: '700',
-  },
-  currentCurrencyInfo: {
-    flex: 1,
-  },
-  currencyCode: {
-    fontSize: 24,
-    fontWeight: '700',
-    marginBottom: 4,
-  },
-  currencyName: {
-    fontSize: 16,
-    marginBottom: 8,
-  },
-  currencyExample: {
-    fontSize: 14,
-  },
-  currenciesList: {
-    marginBottom: 24,
-  },
-  sectionTitle: {
     fontSize: 20,
     fontWeight: '700',
-    marginBottom: 8,
   },
-  sectionDescription: {
+  heroDetails: {
+    flex: 1,
+    gap: 2,
+  },
+  heroCode: {
+    fontSize: 20,
+    fontWeight: '700',
+  },
+  heroName: {
     fontSize: 14,
-    marginBottom: 20,
   },
-  currencyCard: {
+  heroExample: {
+    fontSize: 13,
+    marginTop: 2,
+  },
+  section: {
+    gap: 8,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  sectionSubtitle: {
+    fontSize: 13,
+    marginBottom: 4,
+  },
+  itemCard: {
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 12,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    marginBottom: 12,
+    gap: 10,
   },
-  currencyLeft: {
+  itemLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 10,
     flex: 1,
   },
-  currencySymbolSmall: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+  itemTextWrap: {
+    flex: 1,
+  },
+  symbolBadge: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
     justifyContent: 'center',
-    alignItems: 'center',
   },
-  currencySymbolTextSmall: {
-    fontSize: 18,
-    fontWeight: '600',
-  },
-  currencyCardCode: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  currencyCardCountry: {
-    fontSize: 14,
-  },
-  currencyRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  currencyExampleSmall: {
-    fontSize: 14,
-  },
-  noteCard: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    padding: 16,
-    borderRadius: 12,
-    gap: 12,
-    marginBottom: 24,
-  },
-  noteContent: {
-    flex: 1,
-  },
-  noteTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  noteText: {
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  formatSection: {
-    marginBottom: 24,
-  },
-  formatTitle: {
-    fontSize: 18,
+  symbolBadgeText: {
+    fontSize: 13,
     fontWeight: '700',
-    marginBottom: 16,
+  },
+  itemTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  itemSubtitle: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  itemRight: {
+    alignItems: 'flex-end',
+    gap: 6,
+  },
+  itemExample: {
+    fontSize: 12,
   },
   formatCard: {
-    padding: 16,
-    borderRadius: 12,
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 14,
   },
   formatRow: {
-    marginBottom: 16,
+    gap: 10,
   },
   formatLabel: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
-    marginBottom: 12,
   },
   formatOptions: {
     flexDirection: 'row',
-    gap: 12,
+    gap: 10,
   },
-  formatOption: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
+  decimalButton: {
+    minWidth: 44,
+    height: 40,
+    borderRadius: 10,
     borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  formatOptionText: {
-    fontSize: 16,
-    fontWeight: '600',
+  decimalButtonText: {
+    fontSize: 14,
+    fontWeight: '700',
   },
   divider: {
     height: 1,
-    marginVertical: 16,
+    marginVertical: 14,
   },
-  formatExamples: {
-    gap: 8,
-  },
-  formatExample: {
+  formatPreviewTitle: {
     fontSize: 14,
+    fontWeight: '600',
+  },
+  formatPreviewText: {
+    fontSize: 18,
+    marginTop: 4,
+  },
+  syncText: {
+    fontSize: 12,
+    marginTop: 8,
+  },
+  noteCard: {
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 14,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  noteText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
   },
 });

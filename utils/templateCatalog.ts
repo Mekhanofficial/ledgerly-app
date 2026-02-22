@@ -993,7 +993,24 @@ export const allTemplates = {
 export const getBuiltInTemplates = () => Object.values(allTemplates);
 
 export const getTemplateById = (templateId: string) => {
-  return allTemplates[templateId] || basicTemplates.standard;
+  return (allTemplates as Record<string, any>)[templateId] || basicTemplates.standard;
+};
+
+const normalizeCategory = (category?: string) => {
+  const value = String(category || '').trim().toUpperCase();
+  if (value === 'BASIC') return 'STANDARD';
+  if (value === 'INDUSTRY') return 'STANDARD';
+  if (value === 'PREMIUM' || value === 'ELITE' || value === 'STANDARD' || value === 'CUSTOM') return value;
+  return 'STANDARD';
+};
+
+const normalizeTemplateShape = (template: any) => {
+  const category = normalizeCategory(template?.category);
+  return {
+    ...template,
+    category,
+    isPremium: typeof template?.isPremium === 'boolean' ? template.isPremium : category !== 'STANDARD',
+  };
 };
 
 const loadLocalAccess = async () => {
@@ -1013,7 +1030,7 @@ const loadLocalAccess = async () => {
 };
 
 export const hasTemplateAccessLocal = async (templateId: string) => {
-  const template = allTemplates[templateId];
+  const template = (allTemplates as Record<string, any>)[templateId];
   if (!template) return false;
   if (!template.isPremium) return true;
   const accessible = await loadLocalAccess();
@@ -1021,7 +1038,7 @@ export const hasTemplateAccessLocal = async (templateId: string) => {
 };
 
 export const purchaseTemplateLocal = async (templateId: string, paymentMethod = 'manual') => {
-  const template = allTemplates[templateId];
+  const template = (allTemplates as Record<string, any>)[templateId];
   if (!template) {
     throw new Error('Template not found');
   }
@@ -1060,33 +1077,44 @@ export const mergeTemplates = async (apiTemplates: any[]) => {
   const map = new Map<string, any>();
 
   fallback.forEach((template: any) => {
-    fallbackById.set(template.id, template);
-    map.set(template.id, template);
+    const normalized = normalizeTemplateShape(template);
+    fallbackById.set(normalized.id, normalized);
   });
 
-  apiTemplates.forEach((template) => {
+  const hasApiTemplates = Array.isArray(apiTemplates) && apiTemplates.length > 0;
+  if (!hasApiTemplates) {
+    fallbackById.forEach((value, key) => {
+      map.set(key, value);
+    });
+  }
+
+  (apiTemplates || []).forEach((template) => {
     if (template?.id || template?._id || template?.templateId) {
       const id = template.id || template._id || template.templateId;
       const localTemplate = fallbackById.get(id);
-      const mergedTemplate = localTemplate ? { ...template, ...localTemplate } : template;
+      const mergedTemplate = localTemplate
+        ? { ...localTemplate, ...template }
+        : template;
       if (mergedTemplate && !mergedTemplate.id) {
         mergedTemplate.id = id;
       }
+      const normalized = normalizeTemplateShape(mergedTemplate);
       if (typeof template?.hasAccess === 'boolean') {
-        mergedTemplate.hasAccess = template.hasAccess;
+        normalized.hasAccess = template.hasAccess;
       }
-      map.set(id, mergedTemplate);
+      map.set(id, normalized);
     }
   });
 
   const accessible = await loadLocalAccess();
   return Array.from(map.values()).map((template) => {
-    const isPremium = Boolean(template?.isPremium);
+    const normalized = normalizeTemplateShape(template);
+    const isPremium = Boolean(normalized?.isPremium);
     const apiAccess = typeof template?.hasAccess === 'boolean' ? template.hasAccess : undefined;
-    const localAccess = accessible.has(template?.id);
+    const localAccess = accessible.has(normalized?.id);
     const hasAccess = !isPremium || (apiAccess !== undefined ? apiAccess : localAccess);
     return {
-      ...template,
+      ...normalized,
       hasAccess,
     };
   });

@@ -694,7 +694,7 @@ export default function ReportsScreen() {
           <View style={styles.statHeader}>
             <Text style={[styles.statTitle, { color: colors.text }]}>Outstanding Payments</Text>
             <TouchableOpacity onPress={handleViewOutstandingDetails}>
-              <Text style={[styles.viewDetailsText, { color: colors.primary500 }]}>View Details -></Text>
+              <Text style={[styles.viewDetailsText, { color: colors.primary500 }]}>View Details {'>'}</Text>
             </TouchableOpacity>
           </View>
           <Text style={[styles.statValue, { color: colors.text }]}>${outstandingPaymentsByAge.total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
@@ -851,7 +851,7 @@ export default function ReportsScreen() {
           <View style={styles.sectionHeader}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>Top Products</Text>
             <TouchableOpacity onPress={handleViewTopProducts}>
-              <Text style={[styles.viewAllText, { color: colors.primary500 }]}>View All -></Text>
+              <Text style={[styles.viewAllText, { color: colors.primary500 }]}>View All {'>'}</Text>
             </TouchableOpacity>
           </View>
           
@@ -884,7 +884,7 @@ export default function ReportsScreen() {
           <View style={styles.sectionHeader}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>Top Customers</Text>
             <TouchableOpacity onPress={handleViewTopCustomers}>
-              <Text style={[styles.viewAllText, { color: colors.primary500 }]}>View All -></Text>
+              <Text style={[styles.viewAllText, { color: colors.primary500 }]}>View All {'>'}</Text>
             </TouchableOpacity>
           </View>
           
@@ -1010,7 +1010,7 @@ export default function ReportsScreen() {
         <View style={styles.reportActions}>
           <TouchableOpacity 
             style={[styles.reportActionButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
-            onPress={handleExportReport}
+            onPress={() => { void handleExportReport(); }}
           >
             <Ionicons name="download-outline" size={20} color={colors.primary500} />
             <Text style={[styles.reportActionText, { color: colors.primary500 }]}>Export Report</Text>

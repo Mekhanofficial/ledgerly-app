@@ -18,7 +18,7 @@ import { useRoleGuard } from '@/hooks/useRoleGuard';
 import { useUser } from '@/context/UserContext';
 import { formatCurrency, resolveCurrencyCode } from '@/utils/currency';
 
-type InvoiceStatus = 'paid' | 'pending' | 'overdue' | 'draft';
+type InvoiceStatus = 'paid' | 'pending' | 'overdue' | 'draft' | 'sent' | 'cancelled';
 type StatusFilter = 'all' | InvoiceStatus;
 
 export default function InvoicesScreen() {

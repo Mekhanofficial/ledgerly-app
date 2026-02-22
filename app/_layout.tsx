@@ -2,7 +2,7 @@
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import FlashMessage from 'react-native-flash-message';
-import { Modal, Text, TouchableOpacity, View } from 'react-native';
+import { AppState, Modal, Text, TouchableOpacity, View } from 'react-native';
 import { ThemeProvider } from '@/context/ThemeContext';
 import { DataProvider } from '@/context/DataContext';
 import { LiveChatProvider } from '@/context/LiveChatContext';
@@ -14,18 +14,63 @@ import { useEffect, useState } from 'react';
 // Component that uses the theme
 function RootLayoutContent() {
   const { isDark, colors } = useTheme();
-  const { user, isAuthenticated } = useUser();
+  const { user, isAuthenticated, refreshUser } = useUser();
   const router = useRouter();
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const subscriptionStatus = String(user?.business?.subscription?.status || 'active').toLowerCase();
+  const trialEndsAt = user?.business?.subscription?.trialEndsAt;
 
   useEffect(() => {
-    const status = String(user?.business?.subscription?.status || 'active').toLowerCase();
-    if (isAuthenticated && status === 'expired') {
+    if (isAuthenticated && subscriptionStatus === 'expired') {
       setShowUpgradeModal(true);
     } else {
       setShowUpgradeModal(false);
     }
-  }, [isAuthenticated, user?.business?.subscription?.status]);
+  }, [isAuthenticated, subscriptionStatus]);
+
+  useEffect(() => {
+    if (!isAuthenticated || subscriptionStatus !== 'trial' || !trialEndsAt) return;
+
+    const trialEndsTime = new Date(trialEndsAt).getTime();
+    if (Number.isNaN(trialEndsTime)) return;
+
+    const now = Date.now();
+    if (trialEndsTime <= now) {
+      refreshUser().catch((error) => {
+        console.error('Failed to refresh subscription after trial end:', error);
+      });
+      return;
+    }
+
+    const MAX_TIMEOUT_MS = 2_147_483_647;
+    const delay = Math.min(trialEndsTime - now + 1000, MAX_TIMEOUT_MS);
+    const timer = setTimeout(() => {
+      refreshUser().catch((error) => {
+        console.error('Failed to refresh subscription after trial timer:', error);
+      });
+    }, delay);
+
+    return () => clearTimeout(timer);
+  }, [isAuthenticated, subscriptionStatus, trialEndsAt, refreshUser]);
+
+  useEffect(() => {
+    if (!isAuthenticated || subscriptionStatus !== 'trial') return;
+
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState !== 'active') return;
+      if (!trialEndsAt) return;
+
+      const trialEndsTime = new Date(trialEndsAt).getTime();
+      if (Number.isNaN(trialEndsTime)) return;
+      if (Date.now() < trialEndsTime) return;
+
+      refreshUser().catch((error) => {
+        console.error('Failed to refresh subscription on app resume:', error);
+      });
+    });
+
+    return () => subscription.remove();
+  }, [isAuthenticated, subscriptionStatus, trialEndsAt, refreshUser]);
 
   return (
     <>

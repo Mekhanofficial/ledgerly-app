@@ -13,6 +13,7 @@ interface UserContextType {
   logoutUser: () => Promise<void>;
   registerUser: (userData: RegisterPayload) => Promise<User | null>;
   updateProfile: (updates: Partial<User>) => Promise<User | null>;
+  refreshUser: () => Promise<User | null>;
   isAdmin: () => Promise<boolean>;
   checkAuth: () => Promise<boolean>;
 }
@@ -117,6 +118,13 @@ export const UserProvider: React.FC<UserProviderProps> = ({ children }) => {
     });
   }, []);
 
+  const refreshUser = useCallback(async (): Promise<User | null> => {
+    const currentUser = await authService.getCurrentUser();
+    setUser(currentUser);
+    setIsAuthenticated(Boolean(currentUser));
+    return currentUser;
+  }, []);
+
   // Update user profile
   const updateProfile = useCallback(async (updates: Partial<User>): Promise<User | null> => {
     try {
@@ -166,6 +174,7 @@ export const UserProvider: React.FC<UserProviderProps> = ({ children }) => {
     logoutUser,
     registerUser,
     updateProfile,
+    refreshUser,
     isAdmin,
     checkAuth,
   };

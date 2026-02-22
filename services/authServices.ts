@@ -20,6 +20,7 @@ export interface UserBusiness {
     plan?: string;
     status?: string;
     currentPeriodEnd?: string;
+    trialEndsAt?: string;
   };
 }
 
@@ -48,6 +49,7 @@ export interface RegisterPayload {
   lastName: string;
   email: string;
   password: string;
+  phone?: string;
   phoneNumber?: string;
   businessName: string;
   sex?: string;

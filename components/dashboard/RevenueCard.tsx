@@ -29,19 +29,19 @@ export default function RevenueCard({
     if (type) {
       switch (type) {
         case 'revenue':
-          router.push('/(tabs)/analytics');
+          router.push('/(tabs)/analytics' as any);
           break;
         case 'invoices':
-          router.push('/(tabs)/invoices');
+          router.push('/(tabs)/invoices' as any);
           break;
         case 'customers':
-          router.push('/(tabs)/customers');
+          router.push('/(tabs)/customers' as any);
           break;
         case 'receipts':
-          router.push('/(tabs)/receipts');
+          router.push('/(tabs)/receipts' as any);
           break;
         case 'outstanding':
-          router.push('/(tabs)/invoices?filter=overdue');
+          router.push('/(tabs)/invoices?filter=overdue' as any);
           break;
       }
     }
@@ -49,7 +49,7 @@ export default function RevenueCard({
 
   return (
     <TouchableOpacity 
-      onPress={handlePress}
+      onPress={handlePress as any}
       style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}
       activeOpacity={0.7}
     >

@@ -94,9 +94,6 @@ export default function TabLayout() {
             shadowRadius: 8,
           },
 
-          contentStyle: {
-            backgroundColor: colors.background,
-          },
         }}
       >
         <Tabs.Screen
@@ -174,6 +171,9 @@ export default function TabLayout() {
             ),
           }}
         />
+        <Tabs.Screen name="analytics" options={{ href: null }} />
+        <Tabs.Screen name="customers" options={{ href: null }} />
+        <Tabs.Screen name="receipts" options={{ href: null }} />
       </Tabs>
 
       <MoreOptionsModal

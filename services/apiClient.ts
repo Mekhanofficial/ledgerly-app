@@ -26,10 +26,23 @@ const resolveBaseUrl = () => {
 };
 
 export const API_BASE_URL = resolveBaseUrl();
+export const API_PREFIX = '/api/v1';
+
+const normalizeApiPath = (path: string) => {
+  if (!path) return API_PREFIX;
+  if (path.startsWith('http')) return path;
+
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  if (normalizedPath.startsWith('/api/')) {
+    return normalizedPath;
+  }
+
+  return `${API_PREFIX}${normalizedPath}`;
+};
 
 const buildUrl = (path: string) => {
   if (path.startsWith('http')) return path;
-  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  const normalizedPath = normalizeApiPath(path);
   return `${API_BASE_URL}${normalizedPath}`;
 };
 

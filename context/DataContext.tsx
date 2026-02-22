@@ -129,6 +129,7 @@ export interface Invoice {
 
 export interface ReceiptItem {
   id: string;
+  productId?: string;
   name: string;
   quantity: number;
   price: number;
@@ -922,12 +923,14 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
 
     const resolveInvoiceDate = (inv: Invoice) => {
       const raw = inv.issueDate || inv.createdAt || inv.updatedAt;
+      if (!raw) return null;
       const parsed = new Date(raw);
       return Number.isNaN(parsed.getTime()) ? null : parsed;
     };
 
     const resolveReceiptDate = (rec: Receipt) => {
       const raw = rec.time || rec.createdAt || rec.updatedAt;
+      if (!raw) return null;
       const parsed = new Date(raw);
       return Number.isNaN(parsed.getTime()) ? null : parsed;
     };
@@ -1387,37 +1390,6 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
         : mappedInvoice;
       setInvoices((prev) => [invoice, ...prev]);
       await saveInvoiceTemplateStyle(invoice.id, resolvedInvoiceTemplateStyle);
-      if (invoiceData.status !== 'draft') {
-        try {
-          await adjustStockForInvoiceItems(invoiceData.items, invoice.number);
-          addNotification({
-            type: 'invoice',
-            title: 'Inventory Updated',
-            message: `Stock reduced for invoice #${invoice.number}.`,
-            time: 'Just now',
-            action: {
-              label: 'View Inventory',
-              route: '/(tabs)/inventory',
-            },
-            priority: 'medium',
-            dataId: invoice.id,
-          });
-        } catch (error) {
-          console.error('Failed to adjust stock for invoice:', error);
-          addNotification({
-            type: 'warning',
-            title: 'Stock Update Failed',
-            message: `Invoice #${invoice.number} was created, but stock update failed.`,
-            time: 'Just now',
-            action: {
-              label: 'Review Stock',
-              route: '/(tabs)/inventory',
-            },
-            priority: 'high',
-            dataId: invoice.id,
-          });
-        }
-      }
       addNotification({
         type: 'invoice',
         title: invoiceData.status === 'draft' ? 'Invoice Draft Saved' : 'Invoice Created',
@@ -1436,21 +1408,16 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     [
       customers,
       mapInvoice,
-      refreshData,
-      adjustStockForInvoiceItems,
-      addNotification,
-      saveInvoiceTemplateStyle,
-      selectedInvoiceTemplate,
+        refreshData,
+        addNotification,
+        saveInvoiceTemplateStyle,
+        selectedInvoiceTemplate,
     ]
   );
 
   const updateInvoice = useCallback(
     async (id: string, updates: Partial<Invoice>) => {
       const existing = invoices.find((inv) => inv.id === id);
-      const wasDraft = existing?.status === 'draft';
-      const becomesActive = updates.status && updates.status !== 'draft';
-      const shouldAdjustStock = Boolean(wasDraft && becomesActive);
-
       const payload: any = {};
 
       if (updates.status) {
@@ -1501,39 +1468,6 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
       const response: any = await apiPut(`/api/v1/invoices/${id}`, payload);
       const updated = mapInvoice(response.data || response);
       setInvoices((prev) => prev.map((inv) => (inv.id === id ? updated : inv)));
-      if (shouldAdjustStock) {
-        const itemsToAdjust = updates.items || existing?.items || [];
-        try {
-          await adjustStockForInvoiceItems(itemsToAdjust, updated.number);
-          addNotification({
-            type: 'invoice',
-            title: 'Inventory Updated',
-            message: `Stock reduced for invoice #${updated.number}.`,
-            time: 'Just now',
-            action: {
-              label: 'View Inventory',
-              route: '/(tabs)/inventory',
-            },
-            priority: 'medium',
-            dataId: updated.id,
-          });
-        } catch (error) {
-          console.error('Failed to adjust stock for invoice update:', error);
-          addNotification({
-            type: 'warning',
-            title: 'Stock Update Failed',
-            message: `Invoice #${updated.number} was updated, but stock update failed.`,
-            time: 'Just now',
-            action: {
-              label: 'Review Stock',
-              route: '/(tabs)/inventory',
-            },
-            priority: 'high',
-            dataId: updated.id,
-          });
-        }
-      }
-
       if (updates.status) {
         addNotification({
           type: 'invoice',
@@ -1591,6 +1525,11 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
       const response: any = await apiPost(`/api/v1/invoices/${invoiceId}/payment`, {
         amount,
         paymentMethod: paymentMethod || 'cash',
+        templateStyle:
+          selectedReceiptTemplate?.templateStyle ||
+          selectedReceiptTemplate?.id ||
+          receiptTemplateId ||
+          undefined,
       });
 
       const invoice = response?.data?.invoice ? mapInvoice(response.data.invoice) : response?.invoice ? mapInvoice(response.invoice) : null;
@@ -1618,7 +1557,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
       }
       await refreshData();
     },
-    [mapInvoice, mapReceipt, refreshData, addNotification]
+    [mapInvoice, mapReceipt, refreshData, addNotification, selectedReceiptTemplate, receiptTemplateId]
   );
 
   const getInvoiceById = (id: string) => invoices.find((invoice) => invoice.id === id);
@@ -1883,6 +1822,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
         customerEmail: receiptData.customerEmail,
         customerPhone: receiptData.customerPhone,
         items: receiptData.items.map((item) => ({
+          product: item.productId,
           description: item.name,
           quantity: item.quantity,
           unitPrice: item.price,

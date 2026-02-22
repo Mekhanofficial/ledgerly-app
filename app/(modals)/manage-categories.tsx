@@ -22,6 +22,14 @@ const { width, height } = Dimensions.get('window');
 const isTablet = width >= 768;
 const isSmallScreen = height <= 667;
 
+type CategorySummary = {
+  id?: string;
+  name: string;
+  count: number;
+  value: number;
+  editable: boolean;
+};
+
 export default function ManageCategoriesScreen() {
   const { colors, isDark } = useTheme();
   const {
@@ -36,12 +44,12 @@ export default function ManageCategoriesScreen() {
   const { role, canAccess } = useRoleGuard(ROLE_GROUPS.business);
   const canManageCategories = hasRole(role, ROLE_GROUPS.inventoryManage);
   const [newCategory, setNewCategory] = useState('');
-  const [editingCategory, setEditingCategory] = useState(null);
+  const [editingCategory, setEditingCategory] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
   const [refreshing, setRefreshing] = useState(false);
 
   const categoriesWithCounts = useMemo(() => {
-    const categoryTotals = new Map<string, { id?: string; name: string; count: number; value: number; editable: boolean }>();
+    const categoryTotals = new Map<string, CategorySummary>();
 
     categories.forEach((category) => {
       categoryTotals.set(category.id, {
@@ -71,6 +79,7 @@ export default function ManageCategoriesScreen() {
       }
 
       const current = categoryTotals.get(key);
+      if (!current) return;
       current.count += 1;
       current.value += item.price * item.quantity;
     });
@@ -108,7 +117,7 @@ export default function ManageCategoriesScreen() {
     }
   };
 
-  const handleEditCategory = async (category) => {
+  const handleEditCategory = async (category: CategorySummary) => {
     if (!editText.trim()) {
       Alert.alert('Error', 'Please enter a category name');
       return;
@@ -138,7 +147,7 @@ export default function ManageCategoriesScreen() {
     }
   };
 
-  const handleDeleteCategory = (category) => {
+  const handleDeleteCategory = (category: CategorySummary) => {
     if (!category?.id) {
       Alert.alert('Not Supported', 'This category comes from product data. Edit the products instead.');
       return;
@@ -181,14 +190,14 @@ export default function ManageCategoriesScreen() {
     );
   };
 
-  const handleViewProducts = (category) => {
+  const handleViewProducts = (category: CategorySummary) => {
     router.push({
       pathname: '/(modals)/category-products',
       params: { category: category.name }
     });
   };
 
-  const getCategoryColor = (index) => {
+  const getCategoryColor = (index: number) => {
     const colorsList = [
       colors.primary500,
       colors.success,
@@ -423,7 +432,7 @@ export default function ManageCategoriesScreen() {
                           color: colors.primary500,
                           fontSize: isSmallScreen ? 11 : 12
                         }]}>
-                          View Products ->
+                          View Products {'>'}
                         </Text>
                       </TouchableOpacity>
                     </>

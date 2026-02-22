@@ -10,16 +10,17 @@ import {
 } from 'react-native';
 import { useTheme } from '@/context/ThemeContext';
 import { Ionicons } from '@expo/vector-icons';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import Constants from 'expo-constants';
 import ModalHeader from '@/components/ModalHeader';
 import { useData } from '@/context/DataContext';
 import * as Print from 'expo-print';
 import { useUser } from '@/context/UserContext';
+import { loadLocalCurrency, syncPreferencesFromBackend } from '@/services/preferencesService';
 
 export default function SettingsScreen() {
   const { colors, isDark, theme, setTheme, toggleTheme } = useTheme();
@@ -31,11 +32,51 @@ export default function SettingsScreen() {
   const [autoBackupEnabled, setAutoBackupEnabled] = useState(true);
   const [cacheSize, setCacheSize] = useState('0 MB');
   const [isThemeModalVisible, setIsThemeModalVisible] = useState(false);
+  const [languageSummary, setLanguageSummary] = useState('English (US)');
+  const [currencySummary, setCurrencySummary] = useState('USD');
+  const [fontSizeSummary, setFontSizeSummary] = useState('Medium');
 
   // Load cache size on mount
   useEffect(() => {
     calculateCacheSize();
-  }, []);
+    loadPreferenceSummaries();
+  }, [user?.business?.currency]);
+
+  const loadPreferenceSummaries = async () => {
+    try {
+      const [prefs, localCurrency] = await Promise.all([
+        syncPreferencesFromBackend(),
+        loadLocalCurrency(),
+      ]);
+
+      const languageMap: Record<string, string> = {
+        'en-US': 'English (US)',
+        'es-ES': 'Spanish',
+        'fr-FR': 'French',
+        'de-DE': 'German',
+        'pt-BR': 'Portuguese (BR)',
+        'zh-CN': 'Chinese (Simplified)',
+        'ja-JP': 'Japanese',
+        'ko-KR': 'Korean',
+        'ar-SA': 'Arabic',
+        'ru-RU': 'Russian',
+      };
+
+      setLanguageSummary(languageMap[prefs.language] || prefs.language || 'English (US)');
+      const size = Number(prefs.fontSize || 16);
+      setFontSizeSummary(size <= 14 ? 'Small' : size <= 16 ? 'Medium' : size <= 18 ? 'Large' : 'Extra Large');
+      setCurrencySummary(String(user?.business?.currency || localCurrency || 'USD').toUpperCase());
+    } catch (error) {
+      console.log('Error loading preference summaries:', error);
+      setCurrencySummary(String(user?.business?.currency || 'USD').toUpperCase());
+    }
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      loadPreferenceSummaries();
+    }, [user?.business?.currency])
+  );
 
   const calculateCacheSize = async () => {
     try {
@@ -379,7 +420,7 @@ export default function SettingsScreen() {
         {
           icon: 'text-outline',
           label: 'Font Size',
-          description: 'Medium',
+          description: fontSizeSummary,
           action: () => router.push('/(modals)/settings/font-size'),
           showChevron: true,
         },
@@ -419,14 +460,14 @@ export default function SettingsScreen() {
         {
           icon: 'language-outline',
           label: 'Language',
-          description: 'English (US)',
+          description: languageSummary,
           action: () => router.push('/(modals)/settings/language'),
           showChevron: true,
         },
         {
           icon: 'cash-outline',
           label: 'Currency',
-          description: 'USD ($)',
+          description: currencySummary,
           action: () => router.push('/(modals)/settings/currency'),
           showChevron: true,
         },

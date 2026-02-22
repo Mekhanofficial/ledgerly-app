@@ -15,6 +15,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/context/ThemeContext';
 import { fetchBillingSummary, initializeSubscriptionPayment, updateAddOns } from '@/services/billingService';
+import TrialStatusNotice from '@/components/billing/TrialStatusNotice';
 
 type Plan = {
   id: string;
@@ -31,6 +32,7 @@ type BillingSummary = {
     status?: string;
     subscriptionStart?: string;
     subscriptionEnd?: string;
+    trialEndsAt?: string;
   };
   addOns?: {
     whiteLabelEnabled?: boolean;
@@ -255,6 +257,10 @@ export default function BillingPlanScreen() {
               </View>
             )}
 
+            {statusKey === 'trial' && (
+              <TrialStatusNotice trialEndsAt={currentSubscription?.trialEndsAt} />
+            )}
+
             <View
               style={[
                 styles.summaryCard,
@@ -279,6 +285,14 @@ export default function BillingPlanScreen() {
                     Renewal: {formatDate(currentSubscription?.subscriptionEnd)}
                   </Text>
                 </View>
+                {statusKey === 'trial' && (
+                  <View style={styles.metaItem}>
+                    <Ionicons name="time-outline" size={18} color={colors.textTertiary} />
+                    <Text style={[styles.metaText, { color: colors.textSecondary }]}>
+                      Trial ends: {formatDate(currentSubscription?.trialEndsAt)}
+                    </Text>
+                  </View>
+                )}
                 <View style={styles.metaItem}>
                   <Ionicons name="cash-outline" size={18} color={colors.textTertiary} />
                   <Text style={[styles.metaText, { color: colors.textSecondary }]}>
@@ -412,10 +426,13 @@ export default function BillingPlanScreen() {
                   </View>
                   <Switch
                     value={addOns.whiteLabelEnabled}
-                    onValueChange={(value) => canUseWhiteLabel && setAddOns((prev) => ({
-                      ...prev,
-                      whiteLabelEnabled: value,
-                    }))}
+                    onValueChange={(value) => {
+                      if (!canUseWhiteLabel) return;
+                      setAddOns((prev) => ({
+                        ...prev,
+                        whiteLabelEnabled: value,
+                      }));
+                    }}
                     trackColor={{ false: colors.border, true: colors.primary300 }}
                     thumbColor={addOns.whiteLabelEnabled ? colors.primary500 : colors.textLight}
                     disabled={!canUseWhiteLabel}

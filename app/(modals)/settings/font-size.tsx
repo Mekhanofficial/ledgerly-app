@@ -1,207 +1,216 @@
-// app/(modals)/settings/font-size.tsx
-import React, { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
+  ActivityIndicator,
   ScrollView,
+  StyleSheet,
+  Text,
   TouchableOpacity,
+  View,
 } from 'react-native';
-import { useTheme } from '@/context/ThemeContext';
-import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import Slider from '@react-native-community/slider';
+import { Ionicons } from '@expo/vector-icons';
+import { useTheme } from '@/context/ThemeContext';
+import {
+  DEFAULT_APP_PREFERENCES,
+  saveLocalPreferences,
+  syncPreferencesFromBackend,
+  updatePreferences,
+} from '@/services/preferencesService';
+
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
 export default function FontSizeScreen() {
   const { colors } = useTheme();
-  const [fontSize, setFontSize] = useState(16);
-  const [scaleFactor, setScaleFactor] = useState(1.0);
+  const [fontSize, setFontSize] = useState(DEFAULT_APP_PREFERENCES.fontSize);
+  const [scaleFactor, setScaleFactor] = useState(DEFAULT_APP_PREFERENCES.fontScaleFactor);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    loadFontSettings();
+    const load = async () => {
+      try {
+        setLoading(true);
+        const prefs = await syncPreferencesFromBackend();
+        setFontSize(clamp(Number(prefs.fontSize || 16), 12, 24));
+        setScaleFactor(clamp(Number(prefs.fontScaleFactor || 1), 0.5, 2));
+      } catch (error) {
+        console.error('Failed to load font preferences:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
   }, []);
 
-  const loadFontSettings = async () => {
+  const effectivePreviewTitle = useMemo(() => Math.round(fontSize * scaleFactor), [fontSize, scaleFactor]);
+  const effectivePreviewBody = useMemo(() => Math.round(fontSize * scaleFactor * 0.9), [fontSize, scaleFactor]);
+
+  const persistFontPrefs = async (nextSize: number, nextScale: number) => {
+    const normalizedSize = clamp(Math.round(nextSize), 12, 24);
+    const normalizedScale = clamp(Math.round(nextScale * 4) / 4, 0.5, 2);
+
+    setFontSize(normalizedSize);
+    setScaleFactor(normalizedScale);
+    setSaving(true);
     try {
-      const savedSize = await AsyncStorage.getItem('fontSize');
-      const savedScale = await AsyncStorage.getItem('fontScaleFactor');
-      
-      if (savedSize) setFontSize(parseInt(savedSize));
-      if (savedScale) setScaleFactor(parseFloat(savedScale));
+      await saveLocalPreferences({
+        fontSize: normalizedSize,
+        fontScaleFactor: normalizedScale,
+      });
+      await updatePreferences({
+        fontSize: normalizedSize,
+        fontScaleFactor: normalizedScale,
+      });
     } catch (error) {
-      console.error('Error loading font settings:', error);
+      console.error('Failed to sync font preferences:', error);
+    } finally {
+      setSaving(false);
     }
   };
 
-  const saveFontSettings = async (size: number, scale: number) => {
-    try {
-      await AsyncStorage.setItem('fontSize', size.toString());
-      await AsyncStorage.setItem('fontScaleFactor', scale.toString());
-    } catch (error) {
-      console.error('Error saving font settings:', error);
-    }
-  };
+  const fontLabel =
+    fontSize <= 14 ? 'Small' : fontSize <= 16 ? 'Medium' : fontSize <= 18 ? 'Large' : 'Extra Large';
+  const scaleLabel =
+    scaleFactor <= 0.75 ? 'Compact' : scaleFactor <= 1 ? 'Default' : scaleFactor <= 1.25 ? 'Comfortable' : 'Large';
 
-  const handleFontSizeChange = (value: number) => {
-    setFontSize(value);
-    saveFontSettings(value, scaleFactor);
-  };
-
-  const handleScaleChange = (value: number) => {
-    const rounded = Math.round(value * 4) / 4; // Round to nearest 0.25
-    setScaleFactor(rounded);
-    saveFontSettings(fontSize, rounded);
-  };
-
-  const getFontSizeLabel = (size: number) => {
-    if (size <= 14) return 'Small';
-    if (size <= 16) return 'Medium';
-    if (size <= 18) return 'Large';
-    return 'Extra Large';
-  };
-
-  const getScaleLabel = (scale: number) => {
-    if (scale <= 0.75) return 'Small';
-    if (scale <= 1.0) return 'Default';
-    if (scale <= 1.25) return 'Large';
-    return 'Extra Large';
-  };
-
-  const presetSizes = [
-    { label: 'Small', size: 14 },
-    { label: 'Medium', size: 16 },
-    { label: 'Large', size: 18 },
-    { label: 'Extra Large', size: 20 },
+  const presets = [
+    { label: 'Small', size: 14, scale: 1 },
+    { label: 'Medium', size: 16, scale: 1 },
+    { label: 'Large', size: 18, scale: 1 },
+    { label: 'XL', size: 20, scale: 1.25 },
   ];
 
+  if (loading) {
+    return (
+      <View style={[styles.centerState, { backgroundColor: colors.background }]}>
+        <ActivityIndicator color={colors.primary500} />
+        <Text style={[styles.centerStateText, { color: colors.textTertiary }]}>Loading font settings...</Text>
+      </View>
+    );
+  }
+
   return (
-    <ScrollView style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={styles.content}>
-        <View style={[styles.section, { backgroundColor: colors.surface }]}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>
-            Font Size
-          </Text>
-          <Text style={[styles.sectionDescription, { color: colors.textTertiary }]}>
-            Adjust the base font size for the app
-          </Text>
+    <ScrollView style={[styles.container, { backgroundColor: colors.background }]} contentContainerStyle={styles.content}>
+      <View style={[styles.summaryCard, { backgroundColor: colors.primary50, borderColor: colors.primary100 }]}>
+        <View style={styles.summaryHeader}>
+          <Text style={[styles.summaryTitle, { color: colors.text }]}>Typography Preferences</Text>
+          {saving && <ActivityIndicator size="small" color={colors.primary500} />}
+        </View>
+        <Text style={[styles.summaryText, { color: colors.textSecondary }]}>
+          Base size: {fontSize}px ({fontLabel})
+        </Text>
+        <Text style={[styles.summaryText, { color: colors.textSecondary }]}>
+          Scale: {scaleFactor.toFixed(2)}x ({scaleLabel})
+        </Text>
+        <Text style={[styles.summaryHint, { color: colors.textTertiary }]}>
+          Saved locally and synced to backend settings.
+        </Text>
+      </View>
 
-          <View style={styles.sliderContainer}>
-            <Text style={[styles.sliderValue, { color: colors.primary500 }]}>
-              {fontSize}px
-            </Text>
-            <Slider
-              style={styles.slider}
-              minimumValue={12}
-              maximumValue={24}
-              step={1}
-              value={fontSize}
-              onValueChange={handleFontSizeChange}
-              minimumTrackTintColor={colors.primary500}
-              maximumTrackTintColor={colors.border}
-              thumbTintColor={colors.primary500}
-            />
-            <View style={styles.sliderLabels}>
-              <Text style={[styles.sliderLabel, { color: colors.textTertiary }]}>12px</Text>
-              <Text style={[styles.sliderLabel, { color: colors.textTertiary }]}>24px</Text>
-            </View>
-          </View>
+      <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <Text style={[styles.cardTitle, { color: colors.text }]}>Font Size</Text>
+        <Text style={[styles.cardSubtitle, { color: colors.textTertiary }]}>
+          Controls the base text size used by pages that support app font preferences.
+        </Text>
 
-          <View style={styles.presetContainer}>
-            {presetSizes.map((preset) => (
+        <Text style={[styles.valueText, { color: colors.primary500 }]}>{fontSize}px</Text>
+        <Slider
+          style={styles.slider}
+          minimumValue={12}
+          maximumValue={24}
+          step={1}
+          value={fontSize}
+          onValueChange={(value) => setFontSize(Math.round(value))}
+          onSlidingComplete={(value) => persistFontPrefs(value, scaleFactor)}
+          minimumTrackTintColor={colors.primary500}
+          maximumTrackTintColor={colors.border}
+          thumbTintColor={colors.primary500}
+        />
+        <View style={styles.sliderLabels}>
+          <Text style={[styles.sliderLabel, { color: colors.textTertiary }]}>12</Text>
+          <Text style={[styles.sliderLabel, { color: colors.textTertiary }]}>24</Text>
+        </View>
+
+        <View style={styles.presetGrid}>
+          {presets.map((preset) => {
+            const active = fontSize === preset.size && Math.abs(scaleFactor - preset.scale) < 0.01;
+            return (
               <TouchableOpacity
                 key={preset.label}
                 style={[
                   styles.presetButton,
-                  { 
-                    backgroundColor: colors.card,
-                    borderColor: colors.border,
-                  },
-                  fontSize === preset.size && {
-                    borderColor: colors.primary500,
-                    backgroundColor: colors.primary50,
-                  }
+                  { backgroundColor: colors.card, borderColor: colors.border },
+                  active && { borderColor: colors.primary500, backgroundColor: colors.primary50 },
                 ]}
-                onPress={() => handleFontSizeChange(preset.size)}
+                onPress={() => persistFontPrefs(preset.size, preset.scale)}
+                disabled={saving}
               >
-                <Text
-                  style={[
-                    styles.presetLabel,
-                    { 
-                      color: fontSize === preset.size ? colors.primary500 : colors.text,
-                      fontSize: preset.size * 0.9,
-                    }
-                  ]}
-                >
+                <Text style={[styles.presetText, { color: active ? colors.primary500 : colors.text }]}>
                   {preset.label}
                 </Text>
-                {fontSize === preset.size && (
-                  <Ionicons name="checkmark-circle" size={20} color={colors.primary500} />
-                )}
+                {active && <Ionicons name="checkmark-circle" size={18} color={colors.primary500} />}
               </TouchableOpacity>
-            ))}
-          </View>
+            );
+          })}
+        </View>
+      </View>
+
+      <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <Text style={[styles.cardTitle, { color: colors.text }]}>Text Scale</Text>
+        <Text style={[styles.cardSubtitle, { color: colors.textTertiary }]}>
+          Fine-tunes text scaling for readability.
+        </Text>
+
+        <Text style={[styles.valueText, { color: colors.primary500 }]}>{scaleFactor.toFixed(2)}x</Text>
+        <Slider
+          style={styles.slider}
+          minimumValue={0.5}
+          maximumValue={2}
+          step={0.25}
+          value={scaleFactor}
+          onValueChange={(value) => setScaleFactor(Math.round(value * 4) / 4)}
+          onSlidingComplete={(value) => persistFontPrefs(fontSize, value)}
+          minimumTrackTintColor={colors.primary500}
+          maximumTrackTintColor={colors.border}
+          thumbTintColor={colors.primary500}
+        />
+        <View style={styles.sliderLabels}>
+          <Text style={[styles.sliderLabel, { color: colors.textTertiary }]}>0.5x</Text>
+          <Text style={[styles.sliderLabel, { color: colors.textTertiary }]}>2.0x</Text>
+        </View>
+      </View>
+
+      <View style={[styles.previewCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <View style={styles.previewHeader}>
+          <Text style={[styles.cardTitle, { color: colors.text }]}>Preview</Text>
+          <TouchableOpacity
+            style={[styles.resetButton, { borderColor: colors.border }]}
+            onPress={() => persistFontPrefs(DEFAULT_APP_PREFERENCES.fontSize, DEFAULT_APP_PREFERENCES.fontScaleFactor)}
+            disabled={saving}
+          >
+            <Ionicons name="refresh-outline" size={16} color={colors.textSecondary} />
+            <Text style={[styles.resetButtonText, { color: colors.textSecondary }]}>Reset</Text>
+          </TouchableOpacity>
         </View>
 
-        <View style={[styles.section, { backgroundColor: colors.surface, marginTop: 16 }]}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>
-            Text Scale
+        <View style={[styles.previewInner, { backgroundColor: colors.card }]}>
+          <Text style={[styles.previewTitle, { color: colors.text, fontSize: effectivePreviewTitle }]}>
+            Invoice Summary
           </Text>
-          <Text style={[styles.sectionDescription, { color: colors.textTertiary }]}>
-            Adjust how much text scales relative to system settings
+          <Text style={[styles.previewBody, { color: colors.textSecondary, fontSize: effectivePreviewBody }]}>
+            This preview updates instantly as you change font size and scale. Your preferences are synced for this account.
           </Text>
-
-          <View style={styles.sliderContainer}>
-            <Text style={[styles.sliderValue, { color: colors.primary500 }]}>
-              {scaleFactor.toFixed(2)}x
-            </Text>
-            <Slider
-              style={styles.slider}
-              minimumValue={0.5}
-              maximumValue={2.0}
-              step={0.25}
-              value={scaleFactor}
-              onValueChange={handleScaleChange}
-              minimumTrackTintColor={colors.primary500}
-              maximumTrackTintColor={colors.border}
-              thumbTintColor={colors.primary500}
-            />
-            <View style={styles.sliderLabels}>
-              <Text style={[styles.sliderLabel, { color: colors.textTertiary }]}>0.5x</Text>
-              <Text style={[styles.sliderLabel, { color: colors.textTertiary }]}>2.0x</Text>
-            </View>
-          </View>
-
-          <View style={styles.previewContainer}>
-            <Text style={[styles.previewTitle, { color: colors.text }]}>Preview</Text>
-            <View style={[styles.previewCard, { backgroundColor: colors.card }]}>
-              <Text style={[
-                styles.previewText,
-                { 
-                  color: colors.text,
-                  fontSize: fontSize * scaleFactor,
-                }
-              ]}>
-                This is how your text will appear with the current settings.
-              </Text>
-              <Text style={[
-                styles.previewText,
-                { 
-                  color: colors.textSecondary,
-                  fontSize: fontSize * scaleFactor * 0.875,
-                }
-              ]}>
-                This is smaller text for descriptions and details.
-              </Text>
-            </View>
-          </View>
-        </View>
-
-        <View style={[styles.noteCard, { backgroundColor: colors.primary50, borderColor: colors.primary100 }]}>
-          <Ionicons name="information-circle-outline" size={24} color={colors.primary500} />
-          <Text style={[styles.noteText, { color: colors.text }]}>
-            Changes to font size may require restarting the app to take full effect on all screens.
+          <Text style={[styles.previewCaption, { color: colors.textTertiary, fontSize: Math.max(11, effectivePreviewBody - 2) }]}>
+            Total Paid: $1,234.56
           </Text>
         </View>
+      </View>
+
+      <View style={[styles.noteCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <Ionicons name="information-circle-outline" size={20} color={colors.primary500} />
+        <Text style={[styles.noteText, { color: colors.textSecondary }]}>
+          Some older screens still use fixed sizes. This page now stores and syncs font preferences correctly, and supported screens can read them.
+        </Text>
       </View>
     </ScrollView>
   );
@@ -212,88 +221,147 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
+    padding: 16,
+    paddingBottom: 28,
+    gap: 16,
+  },
+  centerState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
     padding: 20,
   },
-  section: {
-    padding: 20,
-    borderRadius: 16,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    marginBottom: 8,
-  },
-  sectionDescription: {
+  centerStateText: {
     fontSize: 14,
-    marginBottom: 24,
   },
-  sliderContainer: {
-    marginBottom: 24,
+  summaryCard: {
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 16,
+    gap: 4,
   },
-  sliderValue: {
-    fontSize: 24,
+  summaryHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 2,
+  },
+  summaryTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  summaryText: {
+    fontSize: 13,
+  },
+  summaryHint: {
+    fontSize: 12,
+    marginTop: 6,
+  },
+  card: {
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 16,
+  },
+  cardTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  cardSubtitle: {
+    fontSize: 13,
+    marginTop: 4,
+    lineHeight: 18,
+    marginBottom: 12,
+  },
+  valueText: {
+    fontSize: 22,
     fontWeight: '700',
     textAlign: 'center',
-    marginBottom: 16,
+    marginBottom: 8,
   },
   slider: {
     width: '100%',
-    height: 40,
+    height: 36,
   },
   sliderLabels: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 8,
+    marginTop: 4,
   },
   sliderLabel: {
     fontSize: 12,
   },
-  presetContainer: {
+  presetGrid: {
+    marginTop: 14,
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
+    gap: 10,
   },
   presetButton: {
+    minWidth: '47%',
     flex: 1,
-    minWidth: '45%',
-    padding: 16,
-    borderRadius: 12,
     borderWidth: 1,
-    alignItems: 'center',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
   },
-  presetLabel: {
+  presetText: {
+    fontSize: 14,
     fontWeight: '600',
-  },
-  previewContainer: {
-    marginTop: 16,
-  },
-  previewTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 12,
   },
   previewCard: {
-    padding: 20,
-    borderRadius: 12,
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 16,
     gap: 12,
   },
-  previewText: {
-    lineHeight: 24,
+  previewHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  resetButton: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  resetButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  previewInner: {
+    borderRadius: 12,
+    padding: 14,
+    gap: 8,
+  },
+  previewTitle: {
+    fontWeight: '700',
+  },
+  previewBody: {
+    lineHeight: 22,
+  },
+  previewCaption: {
+    fontWeight: '600',
   },
   noteCard: {
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 14,
     flexDirection: 'row',
     alignItems: 'flex-start',
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    gap: 12,
-    marginTop: 24,
+    gap: 10,
   },
   noteText: {
     flex: 1,
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 13,
+    lineHeight: 18,
   },
 });

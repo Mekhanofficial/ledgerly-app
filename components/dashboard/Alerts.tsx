@@ -3,8 +3,10 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-nati
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/context/ThemeContext';
 import { useData } from '@/context/DataContext';
+import { useUser } from '@/context/UserContext';
 import { useEffect, useState } from 'react';
 import { router } from 'expo-router';
+import { formatCurrency, resolveCurrencyCode } from '@/utils/currency';
 
 interface AlertItem {
   id: string;
@@ -21,6 +23,9 @@ interface AlertItem {
 
 export default function Alerts() {
   const { colors } = useTheme();
+  const { user } = useUser();
+  const currencyCode = resolveCurrencyCode(user || undefined);
+  const formatMoney = (value: number, options = {}) => formatCurrency(value, currencyCode, options);
   const { 
     invoices, 
     inventory, 
@@ -157,7 +162,7 @@ export default function Alerts() {
       newAlerts.push({
         id: 'high_outstanding',
         type: 'High Outstanding Balance',
-        message: `Total outstanding payments: $${dashboardStats.outstandingPayments.toFixed(2)}`,
+        message: `Total outstanding payments: ${formatMoney(dashboardStats.outstandingPayments || 0)}`,
         colorType: 'warning',
         icon: 'cash-outline',
         action: { 

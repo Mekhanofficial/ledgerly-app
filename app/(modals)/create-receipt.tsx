@@ -24,6 +24,8 @@ import { buildTemplateVariables, resolveTemplateTheme } from '@/utils/templateSt
 import TemplatePreviewModal from '@/components/templates/TemplatePreviewModal';
 import { buildTemplateDecorations } from '@/utils/templateDecorations';
 import { resolveTemplateStyleVariant } from '@/utils/templateStyleVariants';
+import { ROLE_GROUPS } from '@/utils/roleAccess';
+import { useRoleGuard } from '@/hooks/useRoleGuard';
 
 interface ReceiptItem {
   id: string;
@@ -35,6 +37,7 @@ interface ReceiptItem {
 
 export default function CreateReceiptScreen() {
   const { colors } = useTheme();
+  const { canAccess } = useRoleGuard(ROLE_GROUPS.reports);
   const { 
     addReceipt, 
     inventory, 
@@ -44,6 +47,7 @@ export default function CreateReceiptScreen() {
     templates,
     setReceiptTemplate,
     refreshTemplates,
+    taxSettings,
   } = useData();
   const { user } = useUser();
   const params = useLocalSearchParams();
@@ -99,7 +103,10 @@ export default function CreateReceiptScreen() {
 
   // Calculate totals
   const subtotal = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-  const tax = subtotal * 0.085;
+  const taxEnabled = taxSettings?.taxEnabled ?? true;
+  const taxName = taxSettings?.taxName || 'VAT';
+  const taxRate = Number.isFinite(Number(taxSettings?.taxRate)) ? Number(taxSettings?.taxRate) : 0;
+  const tax = taxEnabled ? subtotal * (taxRate / 100) : 0;
   const discount = 0;
   const total = subtotal + tax - discount;
 
@@ -182,6 +189,10 @@ export default function CreateReceiptScreen() {
   };
 
   const availableTemplates = useMemo(() => templates, [templates]);
+
+  if (!canAccess) {
+    return null;
+  }
 
   const handleTemplateSelect = async (template: Template) => {
     if (template.isPremium && !template.hasAccess) {
@@ -503,10 +514,12 @@ export default function CreateReceiptScreen() {
                   <span>-$${discount.toFixed(2)}</span>
                 </div>
               ` : ''}
-              <div class="summary-row">
-                <span>Tax (8.5%):</span>
-                <span>$${tax.toFixed(2)}</span>
-              </div>
+              ${taxEnabled ? `
+                <div class="summary-row">
+                  <span>${taxName} (${taxRate}%):</span>
+                  <span>$${tax.toFixed(2)}</span>
+                </div>
+              ` : ''}
               <div class="total-row">
                 <span>Total Amount:</span>
                 <span>$${total.toFixed(2)}</span>
@@ -811,10 +824,14 @@ export default function CreateReceiptScreen() {
             <Text style={[styles.summaryLabel, { color: colors.text }]}>Subtotal</Text>
             <Text style={[styles.summaryValue, { color: colors.text }]}>${subtotal.toFixed(2)}</Text>
           </View>
-          <View style={styles.summaryRow}>
-            <Text style={[styles.summaryLabel, { color: colors.text }]}>Tax (8.5%)</Text>
-            <Text style={[styles.summaryValue, { color: colors.text }]}>${tax.toFixed(2)}</Text>
-          </View>
+          {taxEnabled && (
+            <View style={styles.summaryRow}>
+              <Text style={[styles.summaryLabel, { color: colors.text }]}>
+                {`${taxName} (${taxRate}%)`}
+              </Text>
+              <Text style={[styles.summaryValue, { color: colors.text }]}>${tax.toFixed(2)}</Text>
+            </View>
+          )}
           <View style={[styles.totalRow, { borderTopColor: colors.border }]}>
             <Text style={[styles.totalLabel, { color: colors.text }]}>Total</Text>
             <Text style={[styles.totalValue, { color: colors.text }]}>${total.toFixed(2)}</Text>

@@ -13,11 +13,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/context/ThemeContext';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useData } from '@/context/DataContext';
+import { ROLE_GROUPS } from '@/utils/roleAccess';
+import { useRoleGuard } from '@/hooks/useRoleGuard';
 
 export default function EditProductScreen() {
   const { colors } = useTheme();
   const { id } = useLocalSearchParams<{ id?: string }>();
   const { getProductById, updateProduct, loading } = useData();
+  const { canAccess } = useRoleGuard(ROLE_GROUPS.inventoryManage);
   const product = id ? getProductById(id) : undefined;
 
   const [name, setName] = useState('');
@@ -28,6 +31,7 @@ export default function EditProductScreen() {
   const [costPrice, setCostPrice] = useState('');
   const [quantity, setQuantity] = useState('');
   const [lowStockThreshold, setLowStockThreshold] = useState('');
+
   const [supplier, setSupplier] = useState('');
   const [barcode, setBarcode] = useState('');
   const [tags, setTags] = useState('');
@@ -47,6 +51,10 @@ export default function EditProductScreen() {
     setBarcode(product.barcode);
     setTags(product.tags.join(', '));
   }, [product]);
+
+  if (!canAccess) {
+    return null;
+  }
 
   const parseNumber = (value: string, fallback: number) => {
     const parsed = Number(value);

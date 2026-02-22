@@ -19,6 +19,9 @@ import { useData } from '@/context/DataContext';
 import { useUser } from '@/context/UserContext';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
+import { ROLE_GROUPS } from '@/utils/roleAccess';
+import { useRoleGuard } from '@/hooks/useRoleGuard';
+import { resolveCurrencyCode } from '@/utils/currency';
 import {
   TIME_RANGE_OPTIONS,
   TimeRange,
@@ -37,12 +40,6 @@ interface ScheduledReport {
   notes: string;
   nextRun: Date;
 }
-
-const formatCurrency = (value: number) =>
-  value.toLocaleString('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
 
 const computeNextRun = (freq: Frequency, baseTime: Date) => {
   const next = new Date();
@@ -63,6 +60,8 @@ export default function ScheduleReportScreen() {
   const { colors } = useTheme();
   const { invoices, receipts, refreshData } = useData();
   const { user } = useUser();
+  const { canAccess } = useRoleGuard(ROLE_GROUPS.reports);
+  const currencyCode = resolveCurrencyCode(user || undefined);
   const [frequency, setFrequency] = useState<Frequency>('weekly');
   const [selectedRange, setSelectedRange] = useState<TimeRange>('week');
   const [selectedTime, setSelectedTime] = useState<Date>(new Date());
@@ -75,6 +74,10 @@ export default function ScheduleReportScreen() {
   const invoiceStats = useMemo(() => getInvoiceSummary(invoices), [invoices]);
   const receiptStats = useMemo(() => getReceiptSummary(receipts), [receipts]);
   const totalRevenue = invoiceStats.total + receiptStats.total;
+
+  if (!canAccess) {
+    return null;
+  }
 
   const companyName = (
     user?.businessName?.trim() ||
@@ -116,6 +119,7 @@ export default function ScheduleReportScreen() {
         invoiceSummary: invoiceStats,
         receiptSummary: receiptStats,
         totalRevenue,
+        currencyCode,
       });
       const { uri } = await Print.printToFileAsync({ html });
       if (await Sharing.isAvailableAsync()) {

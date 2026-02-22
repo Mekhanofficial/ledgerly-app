@@ -24,7 +24,8 @@ import { useUser } from '@/context/UserContext';
 export default function SettingsScreen() {
   const { colors, isDark, theme, setTheme, toggleTheme } = useTheme();
   const { customers, inventory, invoices, receipts, categories } = useData();
-  const { logoutUser } = useUser();
+  const { logoutUser, user } = useUser();
+  const canManageTeam = user?.role === 'super_admin' || user?.role === 'admin';
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [biometricEnabled, setBiometricEnabled] = useState(true);
   const [autoBackupEnabled, setAutoBackupEnabled] = useState(true);
@@ -299,6 +300,15 @@ export default function SettingsScreen() {
           showChevron: true,
         },
         {
+          icon: 'people-outline',
+          label: 'Team Management',
+          description: canManageTeam
+            ? 'Invite teammates and manage roles'
+            : 'Admin access required',
+          action: () => router.push('/(modals)/settings/team'),
+          showChevron: true,
+        },
+        {
           icon: 'shield-checkmark-outline',
           label: 'Security',
           description: 'Password, 2FA, and security settings',
@@ -310,6 +320,13 @@ export default function SettingsScreen() {
           label: 'Payment Methods',
           description: 'Manage your payment options',
           action: () => router.push('/(modals)/settings/payment-method'),
+          showChevron: true,
+        },
+        {
+          icon: 'wallet-outline',
+          label: 'Billing & Plan',
+          description: 'Manage subscription and add-ons',
+          action: () => router.push('/(modals)/settings/billing-plan'),
           showChevron: true,
         },
         {

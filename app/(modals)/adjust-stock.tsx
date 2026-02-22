@@ -13,6 +13,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/context/ThemeContext';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useData } from '@/context/DataContext';
+import { ROLE_GROUPS } from '@/utils/roleAccess';
+import { useRoleGuard } from '@/hooks/useRoleGuard';
 
 type AdjustType = 'add' | 'remove' | 'set';
 
@@ -20,6 +22,7 @@ export default function AdjustStockScreen() {
   const { colors } = useTheme();
   const { id } = useLocalSearchParams<{ id?: string }>();
   const { getProductById, adjustStock, loading } = useData();
+  const { canAccess } = useRoleGuard(ROLE_GROUPS.inventoryManage);
   const product = id ? getProductById(id) : undefined;
 
   const [adjustType, setAdjustType] = useState<AdjustType>('add');
@@ -69,6 +72,10 @@ export default function AdjustStockScreen() {
       setSaving(false);
     }
   };
+
+  if (!canAccess) {
+    return null;
+  }
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>

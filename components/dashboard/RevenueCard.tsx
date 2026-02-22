@@ -2,7 +2,6 @@
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/context/ThemeContext';
-import { useData } from '@/context/DataContext';
 import { router } from 'expo-router';
 
 interface RevenueCardProps {
@@ -25,8 +24,6 @@ export default function RevenueCard({
   onPress 
 }: RevenueCardProps) {
   const { colors } = useTheme();
-  const { dashboardStats } = useData();
-
   // Default press handler based on type
   const handlePress = onPress || (() => {
     if (type) {
@@ -50,19 +47,6 @@ export default function RevenueCard({
     }
   });
 
-  // Format value if it's a number
-  const formatValue = (val: string) => {
-    if (val.startsWith('$')) {
-      return val; // Already formatted
-    }
-    // Check if it's a number
-    const num = parseFloat(val);
-    if (!isNaN(num)) {
-      return num >= 1000 ? `$${(num / 1000).toFixed(1)}k` : `$${num}`;
-    }
-    return val;
-  };
-
   return (
     <TouchableOpacity 
       onPress={handlePress}
@@ -75,7 +59,7 @@ export default function RevenueCard({
           <Ionicons name={icon as any} size={20} color={color} />
         </View>
       </View>
-      <Text style={[styles.value, { color: colors.text }]}>{formatValue(value)}</Text>
+      <Text style={[styles.value, { color: colors.text }]}>{value}</Text>
       <View style={styles.changeRow}>
         <Text style={[styles.change, { color }]}>{change}</Text>
         <Ionicons 

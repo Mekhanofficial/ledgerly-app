@@ -12,6 +12,8 @@ import { useLocalSearchParams, router } from 'expo-router';
 import { useData } from '@/context/DataContext';
 import ModalHeader from '@/components/ModalHeader';
 import { Ionicons } from '@expo/vector-icons';
+import { ROLE_GROUPS } from '@/utils/roleAccess';
+import { useRoleGuard } from '@/hooks/useRoleGuard';
 
 interface TransactionItem {
   id: string;
@@ -27,6 +29,7 @@ export default function CustomerTransactionsScreen() {
   const { colors } = useTheme();
   const { id } = useLocalSearchParams<{ id?: string }>();
   const { customers, invoices, receipts, refreshData } = useData();
+  const { canAccess } = useRoleGuard(ROLE_GROUPS.business);
 
   const customer = id ? customers.find((c) => c.id === id) : undefined;
   const customerName = customer?.name;
@@ -71,6 +74,10 @@ export default function CustomerTransactionsScreen() {
       (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
     );
   }, [customerName, invoices, receipts]);
+
+  if (!canAccess) {
+    return null;
+  }
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>

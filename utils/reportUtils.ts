@@ -1,4 +1,5 @@
 import { Invoice, Receipt } from '@/context/DataContext';
+import { formatCurrency } from '@/utils/currency';
 
 export type TimeRange = 'today' | 'week' | 'month' | 'quarter' | 'year';
 
@@ -22,12 +23,6 @@ export interface ReceiptSummary {
   refunded: number;
   total: number;
 }
-
-const formatCurrency = (value: number) =>
-  value.toLocaleString('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
 
 export const getInvoiceSummary = (invoices: Invoice[]): InvoiceSummary => {
   const summary: InvoiceSummary = {
@@ -89,6 +84,7 @@ export interface ReportHtmlParams {
   invoiceSummary: InvoiceSummary;
   receiptSummary: ReceiptSummary;
   totalRevenue: number;
+  currencyCode?: string;
   reportTitle?: string;
   reportSubtitle?: string;
   reportTypeLabel?: string;
@@ -101,6 +97,7 @@ export const createReportHTML = ({
   invoiceSummary,
   receiptSummary,
   totalRevenue,
+  currencyCode = 'USD',
   reportTitle,
   reportSubtitle,
   reportTypeLabel,
@@ -110,6 +107,8 @@ export const createReportHTML = ({
   const subtitle =
     reportSubtitle ||
     `${selectedRangeId.toUpperCase()}${reportTypeLabel ? ` - ${reportTypeLabel}` : ''} - Generated ${timeStamp}`;
+  const formatMoney = (value: number) =>
+    formatCurrency(value, currencyCode, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   return `
     <!DOCTYPE html>
@@ -137,22 +136,22 @@ export const createReportHTML = ({
       </div>
       <div class="section">
         <div class="label">Total Revenue</div>
-        <div class="value">$${formatCurrency(totalRevenue)}</div>
+        <div class="value">${formatMoney(totalRevenue)}</div>
       </div>
       <div class="section">
         <div class="label">Invoice Overview</div>
         <div class="grid">
           <div class="card">
             <div class="label">Paid</div>
-            <div class="value">$${formatCurrency(invoiceSummary.paid)}</div>
+            <div class="value">${formatMoney(invoiceSummary.paid)}</div>
           </div>
           <div class="card">
             <div class="label">Pending</div>
-            <div class="value">$${formatCurrency(invoiceSummary.pending)}</div>
+            <div class="value">${formatMoney(invoiceSummary.pending)}</div>
           </div>
           <div class="card">
             <div class="label">Overdue</div>
-            <div class="value">$${formatCurrency(invoiceSummary.overdue)}</div>
+            <div class="value">${formatMoney(invoiceSummary.overdue)}</div>
           </div>
         </div>
       </div>
@@ -161,11 +160,11 @@ export const createReportHTML = ({
         <div class="grid">
           <div class="card">
             <div class="label">Completed</div>
-            <div class="value">$${formatCurrency(receiptSummary.completed)}</div>
+            <div class="value">${formatMoney(receiptSummary.completed)}</div>
           </div>
           <div class="card">
             <div class="label">Refunded</div>
-            <div class="value">$${formatCurrency(receiptSummary.refunded)}</div>
+            <div class="value">${formatMoney(receiptSummary.refunded)}</div>
           </div>
         </div>
       </div>

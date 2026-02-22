@@ -11,11 +11,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/context/ThemeContext';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useData } from '@/context/DataContext';
+import { ROLE_GROUPS } from '@/utils/roleAccess';
+import { useRoleGuard } from '@/hooks/useRoleGuard';
 
 export default function CategoryProductsScreen() {
   const { colors } = useTheme();
   const { category } = useLocalSearchParams();
   const { inventory } = useData();
+  const { canAccess } = useRoleGuard(ROLE_GROUPS.business);
   const [products, setProducts] = useState([]);
 
   useEffect(() => {
@@ -44,6 +47,10 @@ export default function CategoryProductsScreen() {
   };
 
   const totalValue = products.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+
+  if (!canAccess) {
+    return null;
+  }
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>

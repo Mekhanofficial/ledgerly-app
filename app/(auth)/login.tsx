@@ -10,6 +10,7 @@ import {
   Dimensions,
   ScrollView,
   ActivityIndicator,
+  Image,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
@@ -73,6 +74,34 @@ export default function LoginScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={styles.background} pointerEvents="none">
+        <LinearGradient
+          colors={[colors.primary50, colors.background, colors.primary100]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={StyleSheet.absoluteFill}
+        />
+        <View
+          style={[
+            styles.glow,
+            {
+              backgroundColor: colors.primary500 + '22',
+              top: -60,
+              right: -40,
+            },
+          ]}
+        />
+        <View
+          style={[
+            styles.glowSmall,
+            {
+              backgroundColor: colors.info + '18',
+              bottom: 80,
+              left: -30,
+            },
+          ]}
+        />
+      </View>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardView}
@@ -85,13 +114,39 @@ export default function LoginScreen() {
         >
           {/* Header with Logo */}
           <View style={styles.headerContainer}>
-            <View style={[styles.logoContainer, { backgroundColor: colors.primary100 }]}>
-              <Icon name="receipt" size={width * 0.12} color={colors.primary500} />
+            <View style={styles.logoContainer}>
+              <View style={[styles.logoGlow, { backgroundColor: colors.primary500 + '25' }]} />
+              <LinearGradient
+                colors={[colors.primary500, colors.primary600]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.logoGradient}
+              >
+                <Image
+                  source={require('@/assets/images/ledgerly-logo.png')}
+                  style={styles.logoImage}
+                  resizeMode="contain"
+                />
+              </LinearGradient>
             </View>
             <Text style={[styles.appName, { color: colors.text }]}>LEDGERLY</Text>
             <Text style={[styles.tagline, { color: colors.textTertiary }]}>
-              Professional Invoice Management
+              Invoices, receipts, and inventory in one place.
             </Text>
+            <View style={styles.chipRow}>
+              <View style={[styles.chip, { backgroundColor: colors.primary100, borderColor: colors.border }]}>
+                <Icon name="shield-check-outline" size={14} color={colors.primary600} />
+                <Text style={[styles.chipText, { color: colors.textSecondary }]}>Secure</Text>
+              </View>
+              <View style={[styles.chip, { backgroundColor: colors.cardSecondary, borderColor: colors.border }]}>
+                <Icon name="flash-outline" size={14} color={colors.primary500} />
+                <Text style={[styles.chipText, { color: colors.textSecondary }]}>Fast setup</Text>
+              </View>
+              <View style={[styles.chip, { backgroundColor: colors.cardSecondary, borderColor: colors.border }]}>
+                <Icon name="chart-line-variant" size={14} color={colors.primary500} />
+                <Text style={[styles.chipText, { color: colors.textSecondary }]}>Smart insights</Text>
+              </View>
+            </View>
           </View>
 
           {/* Error Message */}
@@ -115,7 +170,7 @@ export default function LoginScreen() {
           ) : null}
 
           {/* Login Form */}
-          <View style={[styles.formContainer, { backgroundColor: colors.surface }]}>
+          <View style={[styles.formContainer, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <View style={styles.formHeader}>
               <Text style={[styles.title, { color: colors.text }]}>Welcome Back</Text>
               <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
@@ -152,7 +207,10 @@ export default function LoginScreen() {
             <View style={styles.inputGroup}>
               <View style={styles.labelRow}>
                 <Text style={[styles.label, { color: colors.textSecondary }]}>Password</Text>
-                <TouchableOpacity disabled={isLoading}>
+                <TouchableOpacity
+                  disabled={isLoading}
+                  onPress={() => router.push('/(auth)/forgot-password')}
+                >
                   <Text style={[styles.forgotPassword, { color: colors.primary500 }]}>
                     Forgot Password?
                   </Text>
@@ -222,7 +280,7 @@ export default function LoginScreen() {
 
             {/* Google Sign In */}
             <TouchableOpacity 
-              style={[styles.googleButton, { borderColor: colors.border }]}
+              style={[styles.googleButton, { borderColor: colors.border, backgroundColor: colors.card }]}
               disabled={isLoading}
             >
               <Icon name="google" size={20} color="#DB4437" />
@@ -253,39 +311,93 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  background: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  glow: {
+    position: 'absolute',
+    width: 220,
+    height: 220,
+    borderRadius: 110,
+  },
+  glowSmall: {
+    position: 'absolute',
+    width: 160,
+    height: 160,
+    borderRadius: 80,
+  },
   keyboardView: {
     flex: 1,
   },
   scrollContent: {
     flexGrow: 1,
     paddingHorizontal: width * 0.06,
-    paddingTop: height * 0.02,
-    paddingBottom: 20,
+    paddingTop: height * 0.03,
+    paddingBottom: 28,
     minHeight: height,
   },
   headerContainer: {
     alignItems: 'center',
-    marginBottom: height * 0.04,
-    marginTop: height * 0.02,
+    marginBottom: height * 0.03,
+    marginTop: height * 0.015,
   },
   logoContainer: {
+    width: width * 0.22,
+    height: width * 0.22,
+    borderRadius: width * 0.11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+    marginBottom: 16,
+  },
+  logoGlow: {
+    position: 'absolute',
+    width: width * 0.26,
+    height: width * 0.26,
+    borderRadius: width * 0.13,
+  },
+  logoGradient: {
     width: width * 0.2,
     height: width * 0.2,
     borderRadius: width * 0.1,
-    justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
+    justifyContent: 'center',
+  },
+  logoImage: {
+    width: width * 0.12,
+    height: width * 0.12,
   },
   appName: {
     fontSize: width * 0.08,
     fontWeight: '800',
-    letterSpacing: 1,
-    marginBottom: 8,
+    letterSpacing: 2,
+    marginBottom: 6,
   },
   tagline: {
     fontSize: width * 0.035,
     textAlign: 'center',
     lineHeight: 20,
+    maxWidth: width * 0.75,
+    marginBottom: 12,
+  },
+  chipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    gap: 6,
+  },
+  chipText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
   errorContainer: {
     flexDirection: 'row',
@@ -318,6 +430,7 @@ const styles = StyleSheet.create({
   formContainer: {
     borderRadius: 24,
     padding: width * 0.06,
+    borderWidth: 1,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.1,
     shadowRadius: 24,

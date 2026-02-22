@@ -12,6 +12,7 @@ import {
   ActivityIndicator,
   Modal,
   TouchableWithoutFeedback,
+  Image,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
@@ -290,7 +291,7 @@ export default function SignupScreen() {
   };
 
   const StepIndicator = () => (
-    <View style={styles.stepIndicator}>
+    <View style={[styles.stepIndicator, { backgroundColor: colors.surface, borderColor: colors.border }]}>
       {[1, 2].map((step) => {
         const isActive = currentStep === step;
         const isCompleted = currentStep > step;
@@ -334,6 +335,34 @@ export default function SignupScreen() {
   if (registrationSuccess) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+        <View style={styles.background} pointerEvents="none">
+          <LinearGradient
+            colors={[colors.primary50, colors.background, colors.primary100]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFill}
+          />
+          <View
+            style={[
+              styles.glow,
+              {
+                backgroundColor: colors.primary500 + '22',
+                top: -60,
+                right: -40,
+              },
+            ]}
+          />
+          <View
+            style={[
+              styles.glowSmall,
+              {
+                backgroundColor: colors.info + '18',
+                bottom: 80,
+                left: -30,
+              },
+            ]}
+          />
+        </View>
         <View style={styles.successContainer}>
           <View style={[styles.successIcon, { backgroundColor: colors.success + '20' }]}>
             <Icon name="check-circle" size={60} color={colors.success} />
@@ -357,6 +386,34 @@ export default function SignupScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={styles.background} pointerEvents="none">
+        <LinearGradient
+          colors={[colors.primary50, colors.background, colors.primary100]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={StyleSheet.absoluteFill}
+        />
+        <View
+          style={[
+            styles.glow,
+            {
+              backgroundColor: colors.primary500 + '22',
+              top: -60,
+              right: -40,
+            },
+          ]}
+        />
+        <View
+          style={[
+            styles.glowSmall,
+            {
+              backgroundColor: colors.info + '18',
+              bottom: 120,
+              left: -30,
+            },
+          ]}
+        />
+      </View>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardView}
@@ -371,13 +428,23 @@ export default function SignupScreen() {
           <View style={styles.header}>
             <TouchableOpacity 
               onPress={() => router.back()} 
-              style={styles.backButton}
+              style={[styles.backButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               disabled={isLoading}
             >
               <Icon name="chevron-left" size={28} color={colors.text} />
             </TouchableOpacity>
           <View style={styles.headerContent}>
+              <View style={styles.brandRow}>
+                <View style={[styles.brandBadge, { backgroundColor: colors.primary100 }]}>
+                  <Image
+                    source={require('@/assets/images/ledgerly-logo.png')}
+                    style={styles.brandLogo}
+                    resizeMode="contain"
+                  />
+                </View>
+                <Text style={[styles.brandName, { color: colors.text }]}>LEDGERLY</Text>
+              </View>
               <Text style={[styles.title, { color: colors.text }]}>
                 {currentStep === 1 ? 'Create Your Account' : 'Setup Your Business'}
               </Text>
@@ -412,7 +479,7 @@ export default function SignupScreen() {
           ) : null}
 
           {/* Form */}
-          <View style={[styles.formContainer, { backgroundColor: colors.surface }]}>
+          <View style={[styles.formContainer, { backgroundColor: colors.surface, borderColor: colors.border }]}>
 
             {currentStep === 1 ? (
               <>
@@ -584,75 +651,73 @@ export default function SignupScreen() {
                   </View>
                 )}
 
-                <View style={styles.row}>
-                  <View style={[styles.inputGroup, { flex: 1, marginRight: 12 }]}>
-                    <Text style={[styles.label, { color: colors.textSecondary }]}>Password *</Text>
-                    <View style={[
-                      styles.inputWrapper, { 
-                        backgroundColor: colors.input,
-                        borderColor: errors.password ? colors.error : colors.border,
-                      }
-                    ]}>
-                      <Icon name="lock-outline" size={20} color={colors.textTertiary} style={styles.inputIcon} />
-                      <TextInput
-                        style={[styles.input, { color: colors.text, flex: 1 }]}
-                        placeholder="********"
-                        placeholderTextColor={colors.textTertiary}
-                        value={formData.password}
-                        onChangeText={(value) => handleInputChange('password', value)}
-                        secureTextEntry={securePassword}
-                        editable={!isLoading}
+                <View style={styles.inputGroup}>
+                  <Text style={[styles.label, { color: colors.textSecondary }]}>Password *</Text>
+                  <View style={[
+                    styles.inputWrapper, { 
+                      backgroundColor: colors.input,
+                      borderColor: errors.password ? colors.error : colors.border,
+                    }
+                  ]}>
+                    <Icon name="lock-outline" size={20} color={colors.textTertiary} style={styles.inputIcon} />
+                    <TextInput
+                      style={[styles.input, { color: colors.text, flex: 1 }]}
+                      placeholder="********"
+                      placeholderTextColor={colors.textTertiary}
+                      value={formData.password}
+                      onChangeText={(value) => handleInputChange('password', value)}
+                      secureTextEntry={securePassword}
+                      editable={!isLoading}
+                    />
+                    <TouchableOpacity 
+                      style={styles.eyeIcon}
+                      onPress={() => setSecurePassword(!securePassword)}
+                      disabled={isLoading}
+                    >
+                      <Icon 
+                        name={securePassword ? "eye-outline" : "eye-off-outline"} 
+                        size={20} 
+                        color={colors.textTertiary} 
                       />
-                      <TouchableOpacity 
-                        style={styles.eyeIcon}
-                        onPress={() => setSecurePassword(!securePassword)}
-                        disabled={isLoading}
-                      >
-                        <Icon 
-                          name={securePassword ? "eye-outline" : "eye-off-outline"} 
-                          size={20} 
-                          color={colors.textTertiary} 
-                        />
-                      </TouchableOpacity>
-                    </View>
-                    {errors.password && (
-                      <Text style={[styles.errorTextSmall, { color: colors.error }]}>{errors.password}</Text>
-                    )}
+                    </TouchableOpacity>
                   </View>
-                  <View style={[styles.inputGroup, { flex: 1 }]}>
-                    <Text style={[styles.label, { color: colors.textSecondary }]}>Confirm *</Text>
-                    <View style={[
-                      styles.inputWrapper, { 
-                        backgroundColor: colors.input,
-                        borderColor: errors.confirmPassword ? colors.error : colors.border,
-                      }
-                    ]}>
-                      <Icon name="lock-check-outline" size={20} color={colors.textTertiary} style={styles.inputIcon} />
-                      <TextInput
-                        style={[styles.input, { color: colors.text, flex: 1 }]}
-                        placeholder="********"
-                        placeholderTextColor={colors.textTertiary}
-                        value={formData.confirmPassword}
-                        onChangeText={(value) => handleInputChange('confirmPassword', value)}
-                        secureTextEntry={secureConfirm}
-                        editable={!isLoading}
+                  {errors.password && (
+                    <Text style={[styles.errorTextSmall, { color: colors.error }]}>{errors.password}</Text>
+                  )}
+                </View>
+                <View style={styles.inputGroup}>
+                  <Text style={[styles.label, { color: colors.textSecondary }]}>Confirm *</Text>
+                  <View style={[
+                    styles.inputWrapper, { 
+                      backgroundColor: colors.input,
+                      borderColor: errors.confirmPassword ? colors.error : colors.border,
+                    }
+                  ]}>
+                    <Icon name="lock-check-outline" size={20} color={colors.textTertiary} style={styles.inputIcon} />
+                    <TextInput
+                      style={[styles.input, { color: colors.text, flex: 1 }]}
+                      placeholder="********"
+                      placeholderTextColor={colors.textTertiary}
+                      value={formData.confirmPassword}
+                      onChangeText={(value) => handleInputChange('confirmPassword', value)}
+                      secureTextEntry={secureConfirm}
+                      editable={!isLoading}
+                    />
+                    <TouchableOpacity 
+                      style={styles.eyeIcon}
+                      onPress={() => setSecureConfirm(!secureConfirm)}
+                      disabled={isLoading}
+                    >
+                      <Icon 
+                        name={secureConfirm ? "eye-outline" : "eye-off-outline"} 
+                        size={20} 
+                        color={colors.textTertiary} 
                       />
-                      <TouchableOpacity 
-                        style={styles.eyeIcon}
-                        onPress={() => setSecureConfirm(!secureConfirm)}
-                        disabled={isLoading}
-                      >
-                        <Icon 
-                          name={secureConfirm ? "eye-outline" : "eye-off-outline"} 
-                          size={20} 
-                          color={colors.textTertiary} 
-                        />
-                      </TouchableOpacity>
-                    </View>
-                    {errors.confirmPassword && (
-                      <Text style={[styles.errorTextSmall, { color: colors.error }]}>{errors.confirmPassword}</Text>
-                    )}
+                    </TouchableOpacity>
                   </View>
+                  {errors.confirmPassword && (
+                    <Text style={[styles.errorTextSmall, { color: colors.error }]}>{errors.confirmPassword}</Text>
+                  )}
                 </View>
               </>
             ) : (
@@ -834,7 +899,7 @@ export default function SignupScreen() {
 
                 {/* Google Sign In */}
                 <TouchableOpacity 
-                  style={[styles.googleButton, { borderColor: colors.border }]}
+                  style={[styles.googleButton, { borderColor: colors.border, backgroundColor: colors.card }]}
                   disabled={isLoading}
                 >
                   <Icon name="google" size={20} color="#DB4437" />
@@ -999,6 +1064,21 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  background: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  glow: {
+    position: 'absolute',
+    width: 220,
+    height: 220,
+    borderRadius: 110,
+  },
+  glowSmall: {
+    position: 'absolute',
+    width: 160,
+    height: 160,
+    borderRadius: 80,
+  },
   successContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -1041,6 +1121,7 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
     paddingHorizontal: width * 0.06,
+    paddingTop: height * 0.02,
     paddingBottom: 20,
     minHeight: height,
   },
@@ -1049,10 +1130,38 @@ const styles = StyleSheet.create({
     marginBottom: height * 0.04,
   },
   backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: 16,
   },
   headerContent: {
     marginTop: 8,
+    gap: 8,
+  },
+  brandRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  brandBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  brandLogo: {
+    width: 18,
+    height: 18,
+  },
+  brandName: {
+    fontSize: 14,
+    fontWeight: '800',
+    letterSpacing: 1.6,
   },
   title: {
     fontSize: width * 0.08,
@@ -1068,6 +1177,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 20,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    borderWidth: 1,
     gap: 8,
   },
   stepItem: {
@@ -1128,6 +1241,7 @@ const styles = StyleSheet.create({
   formContainer: {
     borderRadius: 24,
     padding: width * 0.06,
+    borderWidth: 1,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.1,
     shadowRadius: 24,

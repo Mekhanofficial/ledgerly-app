@@ -12,11 +12,20 @@ import { useTheme } from '@/context/ThemeContext';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo } from 'react';
 import { useData } from '@/context/DataContext';
+import { hasRole, ROLE_GROUPS } from '@/utils/roleAccess';
+import { useRoleGuard } from '@/hooks/useRoleGuard';
+import { useUser } from '@/context/UserContext';
+import { formatCurrency, resolveCurrencyCode } from '@/utils/currency';
 
 export default function ProductDetailScreen() {
   const { colors } = useTheme();
   const { id } = useLocalSearchParams<{ id?: string }>();
   const { getProductById, notifications, loading } = useData();
+  const { user } = useUser();
+  const { role, canAccess } = useRoleGuard(ROLE_GROUPS.business);
+  const canManageInventory = hasRole(role, ROLE_GROUPS.inventoryManage);
+  const currencyCode = resolveCurrencyCode(user || undefined);
+  const formatMoney = (value: number, options = {}) => formatCurrency(value, currencyCode, options);
   const product = id ? getProductById(id) : undefined;
 
   const formatDateTime = (value: string | Date) => {
@@ -91,6 +100,10 @@ export default function ProductDetailScreen() {
 
   const totalInventoryValue = product ? product.quantity * product.price : 0;
 
+  if (!canAccess) {
+    return null;
+  }
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       {!product && !loading ? (
@@ -154,18 +167,18 @@ export default function ProductDetailScreen() {
             
             <View style={styles.statItem}>
               <Text style={[styles.statLabel, { color: colors.textTertiary }]}>Unit Price</Text>
-              <Text style={[styles.statPrice, { color: colors.text }]}>${product?.price.toFixed(2) ?? '0.00'}</Text>
+              <Text style={[styles.statPrice, { color: colors.text }]}>{formatMoney(product?.price || 0)}</Text>
             </View>
             
             <View style={styles.statItem}>
               <Text style={[styles.statLabel, { color: colors.textTertiary }]}>Cost Price</Text>
-              <Text style={[styles.statPrice, { color: colors.text }]}>${product?.costPrice.toFixed(2) ?? '0.00'}</Text>
+              <Text style={[styles.statPrice, { color: colors.text }]}>{formatMoney(product?.costPrice || 0)}</Text>
             </View>
           </View>
 
           <View style={[styles.inventoryValue, { borderTopColor: colors.border }]}>
             <Text style={[styles.inventoryLabel, { color: colors.text }]}>Total Inventory Value</Text>
-            <Text style={[styles.inventoryAmount, { color: colors.text }]}>${totalInventoryValue.toFixed(2)}</Text>
+            <Text style={[styles.inventoryAmount, { color: colors.text }]}>{formatMoney(totalInventoryValue)}</Text>
           </View>
         </View>
 
@@ -209,24 +222,28 @@ export default function ProductDetailScreen() {
 
         {/* Action Buttons */}
         <View style={styles.actionButtons}>
-          <TouchableOpacity
-            style={[styles.editButton, { backgroundColor: colors.primary50, borderColor: colors.primary100 }]}
-            onPress={() => product && router.push(`/(modals)/edit-product?id=${product.id}`)}
-            disabled={!product}
-          >
-            <Ionicons name="create-outline" size={20} color={colors.primary500} />
-            <Text style={[styles.editButtonText, { color: colors.primary500 }]}>Edit Product</Text>
-          </TouchableOpacity>
-          
-          <View style={styles.secondaryActions}>
+          {canManageInventory && (
             <TouchableOpacity
-              style={[styles.secondaryButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
-              onPress={() => product && router.push(`/(modals)/adjust-stock?id=${product.id}`)}
+              style={[styles.editButton, { backgroundColor: colors.primary50, borderColor: colors.primary100 }]}
+              onPress={() => product && router.push(`/(modals)/edit-product?id=${product.id}`)}
               disabled={!product}
             >
-              <Ionicons name="swap-vertical-outline" size={20} color={colors.primary500} />
-              <Text style={[styles.secondaryButtonText, { color: colors.primary500 }]}>Adjust Stock</Text>
+              <Ionicons name="create-outline" size={20} color={colors.primary500} />
+              <Text style={[styles.editButtonText, { color: colors.primary500 }]}>Edit Product</Text>
             </TouchableOpacity>
+          )}
+          
+          <View style={styles.secondaryActions}>
+            {canManageInventory && (
+              <TouchableOpacity
+                style={[styles.secondaryButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
+                onPress={() => product && router.push(`/(modals)/adjust-stock?id=${product.id}`)}
+                disabled={!product}
+              >
+                <Ionicons name="swap-vertical-outline" size={20} color={colors.primary500} />
+                <Text style={[styles.secondaryButtonText, { color: colors.primary500 }]}>Adjust Stock</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity
               style={[styles.secondaryButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
               onPress={() => product && router.push(`/(modals)/create-invoice?productId=${product.id}`)}

@@ -14,11 +14,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/context/ThemeContext';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useData } from '@/context/DataContext';
+import { ROLE_GROUPS } from '@/utils/roleAccess';
+import { useRoleGuard } from '@/hooks/useRoleGuard';
 
 export default function CustomerDetailScreen() {
   const { colors } = useTheme();
   const { customers, deleteCustomer, getCustomerById } = useData();
   const { id } = useLocalSearchParams();
+  const { canAccess } = useRoleGuard(ROLE_GROUPS.business);
   const [customer, setCustomer] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -45,6 +48,10 @@ export default function CustomerDetailScreen() {
       router.back();
     }
   }, [id, customers]);
+
+  if (!canAccess) {
+    return null;
+  }
 
   const handleDelete = () => {
     if (customer) {

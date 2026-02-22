@@ -16,6 +16,11 @@ export interface UserBusiness {
   };
   logo?: string;
   currency?: string;
+  subscription?: {
+    plan?: string;
+    status?: string;
+    currentPeriodEnd?: string;
+  };
 }
 
 export interface User {
@@ -26,7 +31,7 @@ export interface User {
   email: string;
   phone?: string;
   phoneNumber?: string;
-  role: 'admin' | 'accountant' | 'sales' | 'viewer' | 'user';
+  role: 'super_admin' | 'admin' | 'accountant' | 'staff' | 'sales' | 'viewer' | 'client' | 'user';
   business?: UserBusiness;
   businessName?: string;
   country?: string;
@@ -81,6 +86,7 @@ const mapBusiness = (business: any): UserBusiness | undefined => {
     address: business.address,
     logo: resolveMediaUrl(business.logo),
     currency: business.currency,
+    subscription: business.subscription,
   };
 };
 
@@ -117,7 +123,12 @@ const saveAuth = async (token: string | null, user: User | null) => {
 };
 
 const clearAuth = async () => {
-  await AsyncStorage.multiRemove([AUTH_TOKEN_KEY, AUTH_USER_KEY]);
+  await AsyncStorage.multiRemove([
+    AUTH_TOKEN_KEY,
+    AUTH_USER_KEY,
+    'premium_templates_access',
+    'template_purchases'
+  ]);
 };
 
 export async function registerUser(userData: RegisterPayload): Promise<AuthResponse> {
@@ -129,6 +140,7 @@ export async function registerUser(userData: RegisterPayload): Promise<AuthRespo
       password: (userData as any).password,
       phone: userData.phoneNumber || userData.phone,
       businessName: userData.businessName,
+      currencyCode: userData.currencyCode,
     };
 
     const response: any = await apiPost('/api/v1/auth/register', payload);
@@ -165,6 +177,18 @@ export async function loginUser(email: string, password: string): Promise<AuthRe
     return {
       success: false,
       message: error?.message || 'Login failed. Please try again.',
+    };
+  }
+}
+
+export async function requestPasswordReset(email: string): Promise<{ success: boolean; message: string }> {
+  try {
+    await apiPost('/api/v1/auth/forgotpassword', { email });
+    return { success: true, message: 'Password reset instructions sent' };
+  } catch (error: any) {
+    return {
+      success: false,
+      message: error?.message || 'Failed to send reset instructions',
     };
   }
 }
@@ -214,7 +238,7 @@ export async function isAdmin(): Promise<boolean> {
   const storedUser = await AsyncStorage.getItem(AUTH_USER_KEY);
   if (!storedUser) return false;
   const user: User = JSON.parse(storedUser);
-  return user.role === 'admin';
+  return user.role === 'admin' || user.role === 'super_admin';
 }
 
 export async function updateUserProfile(

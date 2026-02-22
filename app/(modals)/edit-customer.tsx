@@ -15,12 +15,15 @@ import { useTheme } from '@/context/ThemeContext';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useData } from '@/context/DataContext';
 import { showMessage } from 'react-native-flash-message';
+import { ROLE_GROUPS } from '@/utils/roleAccess';
+import { useRoleGuard } from '@/hooks/useRoleGuard';
 
 
 export default function EditCustomerScreen() {
   const { colors } = useTheme();
   const { customers, updateCustomer } = useData();
   const { id } = useLocalSearchParams();
+  const { canAccess } = useRoleGuard(ROLE_GROUPS.business);
   const [customer, setCustomer] = useState<any>(null);
   
   const [name, setName] = useState('');
@@ -30,6 +33,7 @@ export default function EditCustomerScreen() {
   const [address, setAddress] = useState('');
   const [notes, setNotes] = useState('');
   const [status, setStatus] = useState<'active' | 'inactive'>('active');
+
   const [loading, setLoading] = useState(false);
   const [showStatusModal, setShowStatusModal] = useState(false);
 
@@ -48,6 +52,10 @@ export default function EditCustomerScreen() {
       }
     }
   }, [id, customers]);
+
+  if (!canAccess) {
+    return null;
+  }
 
   const validateForm = () => {
     if (!name.trim()) {

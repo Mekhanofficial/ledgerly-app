@@ -1082,9 +1082,9 @@ export const mergeTemplates = async (apiTemplates: any[]) => {
   const accessible = await loadLocalAccess();
   return Array.from(map.values()).map((template) => {
     const isPremium = Boolean(template?.isPremium);
-    const apiAccess = typeof template?.hasAccess === 'boolean' ? template.hasAccess : false;
+    const apiAccess = typeof template?.hasAccess === 'boolean' ? template.hasAccess : undefined;
     const localAccess = accessible.has(template?.id);
-    const hasAccess = !isPremium || apiAccess || localAccess;
+    const hasAccess = !isPremium || (apiAccess !== undefined ? apiAccess : localAccess);
     return {
       ...template,
       hasAccess,

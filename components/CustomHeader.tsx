@@ -122,13 +122,16 @@ export default function CustomHeader({
           <View style={styles.logoContainer}>
             <View
               style={[
-                styles.logoGradient,
+                styles.logoBadge,
                 { backgroundColor: colors.primary100 },
               ]}
-            />
-            <Text style={[styles.logoText, { color: colors.primary500 }]}>
-              Ledgerly
-            </Text>
+            >
+              <Image
+                source={require('@/assets/images/ledgerly-logo.png')}
+                style={styles.logoImage}
+                resizeMode="contain"
+              />
+            </View>
           </View>
 
           {/* Right */}
@@ -210,18 +213,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-  logoGradient: {
-    position: 'absolute',
+  logoBadge: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    opacity: 0.2,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  logoText: {
-    fontSize: 24,
-    fontWeight: '800',
-    letterSpacing: 0.8,
-    marginLeft: 10,
+  logoImage: {
+    width: 26,
+    height: 26,
   },
   rightContainer: {
     flexDirection: 'row',

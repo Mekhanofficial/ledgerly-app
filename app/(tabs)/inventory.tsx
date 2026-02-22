@@ -15,6 +15,10 @@ import { Image } from 'expo-image';
 import { useTheme } from '../../context/ThemeContext';
 import { router } from 'expo-router';
 import { useData } from '../../context/DataContext';
+import { hasRole, ROLE_GROUPS } from '@/utils/roleAccess';
+import { useRoleGuard } from '@/hooks/useRoleGuard';
+import { useUser } from '@/context/UserContext';
+import { formatCurrency, resolveCurrencyCode } from '@/utils/currency';
 
 const { width, height } = Dimensions.get('window');
 const isTablet = width >= 768;
@@ -27,6 +31,13 @@ const FALLBACK_PRODUCT_IMAGE = 'https://images.unsplash.com/photo-1512499617640-
 export default function InventoryScreen() {
   const { colors, isDark } = useTheme();
   const { inventory, categories, dashboardStats, refreshData, loading, deleteProduct } = useData();
+  const { user } = useUser();
+  const { role, canAccess } = useRoleGuard(ROLE_GROUPS.business);
+  const canManageInventory = hasRole(role, ROLE_GROUPS.inventoryManage);
+  const currencyCode = resolveCurrencyCode(user || undefined);
+  const formatMoney = (value: number, options = {}) => formatCurrency(value, currencyCode, options);
+  const formatMoneyNoDecimals = (value: number) =>
+    formatMoney(value, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
   const [selectedCategory, setSelectedCategory] = useState('All Categories');
   const [selectedStatus, setSelectedStatus] = useState<string>('All Status');
   const [refreshing, setRefreshing] = useState(false);
@@ -95,6 +106,10 @@ export default function InventoryScreen() {
     return baseSize;
   };
 
+  if (!canAccess) {
+    return null;
+  }
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <ScrollView 
@@ -154,21 +169,23 @@ export default function InventoryScreen() {
                 Categories
               </Text>
             </TouchableOpacity>
-            <TouchableOpacity 
-              style={[
-                styles.addButton, 
-                { 
-                  backgroundColor: colors.primary500,
-                  width: isSmallScreen ? 40 : 44,
-                  height: isSmallScreen ? 40 : 44,
-                  borderRadius: isSmallScreen ? 20 : 22,
-                }
-              ]}
-              onPress={() => router.push('/(modals)/add-product')}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="add" size={getResponsiveFontSize(20)} color="white" />
-            </TouchableOpacity>
+            {canManageInventory && (
+              <TouchableOpacity 
+                style={[
+                  styles.addButton, 
+                  { 
+                    backgroundColor: colors.primary500,
+                    width: isSmallScreen ? 40 : 44,
+                    height: isSmallScreen ? 40 : 44,
+                    borderRadius: isSmallScreen ? 20 : 22,
+                  }
+                ]}
+                onPress={() => router.push('/(modals)/add-product')}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="add" size={getResponsiveFontSize(20)} color="white" />
+              </TouchableOpacity>
+            )}
           </View>
         </View>
 
@@ -250,7 +267,7 @@ export default function InventoryScreen() {
                 fontSize: getResponsiveFontSize(isTablet ? 32 : 28)
               }
             ]}>
-              ${totalValue.toLocaleString()}
+              {formatMoneyNoDecimals(totalValue)}
             </Text>
             <Text style={[
               styles.statSubtitle, 
@@ -540,7 +557,7 @@ export default function InventoryScreen() {
                         fontSize: getResponsiveFontSize(18)
                       }
                     ]}>
-                      ${item.price.toFixed(2)}
+                      {formatMoney(item.price || 0)}
                     </Text>
                   </View>
                 </View>
@@ -564,7 +581,7 @@ export default function InventoryScreen() {
                         fontSize: getResponsiveFontSize(13)
                       }
                     ]}>
-                      ${(item.price * item.quantity).toLocaleString()}
+                      {formatMoneyNoDecimals((item.price || 0) * (item.quantity || 0))}
                     </Text>
                   </View>
                   
@@ -586,16 +603,18 @@ export default function InventoryScreen() {
                         {getStatusText(item.status)}
                       </Text>
                     </View>
-                    <TouchableOpacity 
-                      onPress={(e) => {
-                        e.stopPropagation();
-                        handleDeleteProduct(item.id);
-                      }}
-                      style={[styles.deleteButton, { backgroundColor: colors.error + '15' }]}
-                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                    >
-                      <Ionicons name="trash-outline" size={getResponsiveFontSize(16)} color={colors.error} />
-                    </TouchableOpacity>
+                    {canManageInventory && (
+                      <TouchableOpacity 
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          handleDeleteProduct(item.id);
+                        }}
+                        style={[styles.deleteButton, { backgroundColor: colors.error + '15' }]}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      >
+                        <Ionicons name="trash-outline" size={getResponsiveFontSize(16)} color={colors.error} />
+                      </TouchableOpacity>
+                    )}
                   </View>
                 </View>
               </TouchableOpacity>
@@ -627,19 +646,21 @@ export default function InventoryScreen() {
                   ? 'Try changing your filters' 
                   : 'Add your first product to get started'}
               </Text>
-              <TouchableOpacity 
-                style={[styles.addProductButton, { backgroundColor: colors.primary500 }]}
-                onPress={() => router.push('/(modals)/add-product')}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="add" size={20} color="white" />
-                <Text style={[
-                  styles.addProductButtonText,
-                  { fontSize: getResponsiveFontSize(16) }
-                ]}>
-                  Add New Product
-                </Text>
-              </TouchableOpacity>
+              {canManageInventory && (
+                <TouchableOpacity 
+                  style={[styles.addProductButton, { backgroundColor: colors.primary500 }]}
+                  onPress={() => router.push('/(modals)/add-product')}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="add" size={20} color="white" />
+                  <Text style={[
+                    styles.addProductButtonText,
+                    { fontSize: getResponsiveFontSize(16) }
+                  ]}>
+                    Add New Product
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
           )}
         </View>

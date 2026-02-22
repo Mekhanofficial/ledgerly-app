@@ -43,6 +43,12 @@ export default function MoreLayout() {
           title: 'Reports',
         }}
       />
+      <Stack.Screen
+        name="search"
+        options={{
+          title: 'Search',
+        }}
+      />
     </Stack>
   );
 }

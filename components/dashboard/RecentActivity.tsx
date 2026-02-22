@@ -2,9 +2,11 @@
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { useTheme } from '@/context/ThemeContext';
 import { useData } from '@/context/DataContext';
+import { useUser } from '@/context/UserContext';
 import { useEffect, useState } from 'react';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { formatCurrency, resolveCurrencyCode } from '@/utils/currency';
 
 interface ActivityItem {
   id: string;
@@ -19,6 +21,9 @@ interface ActivityItem {
 
 export default function RecentActivity() {
   const { colors } = useTheme();
+  const { user } = useUser();
+  const currencyCode = resolveCurrencyCode(user || undefined);
+  const formatMoney = (value: number, options = {}) => formatCurrency(value, currencyCode, options);
   const { 
     invoices, 
     receipts, 
@@ -52,7 +57,7 @@ export default function RecentActivity() {
         id: `inv_${invoice.id}`,
         customer: invoice.customer,
         invoice: invoice.number,
-        amount: `$${invoice.amount.toFixed(2)}`,
+        amount: formatMoney(invoice.amount || 0),
         status: invoice.status as any,
         time: formatTimeAgo(invoice.createdAt),
         type: 'invoice',
@@ -74,7 +79,7 @@ export default function RecentActivity() {
         id: `rcpt_${receipt.id}`,
         customer: receipt.customer,
         invoice: receipt.number,
-        amount: `$${receipt.amount.toFixed(2)}`,
+        amount: formatMoney(receipt.amount || 0),
         status: receipt.status === 'completed' ? 'completed' : 
                 receipt.status === 'refunded' ? 'refunded' : 'pending',
         time: formatTimeAgo(receipt.createdAt),
@@ -93,7 +98,7 @@ export default function RecentActivity() {
         id: `cust_${customer.id}`,
         customer: customer.name,
         invoice: 'Customer',
-        amount: `$${customer.totalSpent.toFixed(2)} spent`,
+        amount: `${formatMoney(customer.totalSpent || 0)} spent`,
         status: customer.status === 'active' ? 'paid' : 'pending',
         time: formatTimeAgo(customer.updatedAt || customer.createdAt),
         type: 'customer',
@@ -131,7 +136,7 @@ export default function RecentActivity() {
           id: `pay_${invoice.id}`,
           customer: invoice.customer,
           invoice: `Payment - ${invoice.number}`,
-          amount: `$${invoice.paidAmount.toFixed(2)}`,
+          amount: formatMoney(invoice.paidAmount || 0),
           status: 'paid',
           time: formatTimeAgo(invoice.updatedAt || invoice.createdAt),
           type: 'payment',

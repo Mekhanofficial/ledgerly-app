@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/context/ThemeContext';
 import { router } from 'expo-router';
 import { useData } from '@/context/DataContext';
+import { ROLE_GROUPS } from '@/utils/roleAccess';
+import { useRoleGuard } from '@/hooks/useRoleGuard';
+import { useUser } from '@/context/UserContext';
+import { formatCurrency, resolveCurrencyCode } from '@/utils/currency';
 
 export interface Customer {
   id: string;
@@ -31,6 +35,12 @@ export interface Customer {
 export default function CustomersScreen() {
   const { colors } = useTheme();
   const { customers, deleteCustomer } = useData();
+  const { user } = useUser();
+  const { canAccess } = useRoleGuard(ROLE_GROUPS.business);
+  const currencyCode = resolveCurrencyCode(user || undefined);
+  const formatMoney = (value: number, options = {}) => formatCurrency(value, currencyCode, options);
+  const formatMoneyNoDecimals = (value: number) =>
+    formatMoney(value, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
   const [searchQuery, setSearchQuery] = useState('');
   const [filter, setFilter] = useState<'all' | 'active' | 'inactive'>('all');
 
@@ -60,6 +70,10 @@ export default function CustomersScreen() {
       ]
     );
   };
+
+  if (!canAccess) {
+    return null;
+  }
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
@@ -107,7 +121,7 @@ export default function CustomersScreen() {
               styles.statValue, 
               { color: totalOutstanding > 0 ? colors.error : colors.text }
             ]}>
-              ${totalOutstanding.toLocaleString()}
+              {formatMoneyNoDecimals(totalOutstanding)}
             </Text>
             <Text style={[styles.statSubtitle, { color: colors.textTertiary }]}>Amount receivable</Text>
           </View>
@@ -190,7 +204,7 @@ export default function CustomersScreen() {
                       styles.outstandingAmount,
                       { color: customer.outstanding > 0 ? colors.error : colors.success }
                     ]}>
-                      ${customer.outstanding.toLocaleString()}
+                      {formatMoneyNoDecimals(customer.outstanding || 0)}
                     </Text>
                   </View>
                 </View>
@@ -198,7 +212,7 @@ export default function CustomersScreen() {
               
               <View style={[styles.customerFooter, { borderTopColor: colors.border }]}>
                 <View style={styles.footerInfo}>
-                  <Text style={[styles.totalSpent, { color: colors.text }]}>Total Spent: ${customer.totalSpent.toLocaleString()}</Text>
+                  <Text style={[styles.totalSpent, { color: colors.text }]}>Total Spent: {formatMoneyNoDecimals(customer.totalSpent || 0)}</Text>
                   <Text style={[styles.lastTransaction, { color: colors.textTertiary }]}>Last: {customer.lastTransaction}</Text>
                 </View>
                 <TouchableOpacity 

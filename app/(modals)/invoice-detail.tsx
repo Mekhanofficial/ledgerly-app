@@ -15,10 +15,13 @@ import { useTheme } from '@/context/ThemeContext';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useData } from '@/context/DataContext';
 import { useUser } from '@/context/UserContext';
+import { hasRole, ROLE_GROUPS } from '@/utils/roleAccess';
+import { useRoleGuard } from '@/hooks/useRoleGuard';
 import { getTemplateById } from '@/utils/templateCatalog';
 import { buildTemplateVariables, resolveTemplateTheme } from '@/utils/templateStyles';
 import { buildTemplateDecorations } from '@/utils/templateDecorations';
 import { resolveTemplateStyleVariant } from '@/utils/templateStyleVariants';
+import { formatCurrency, getCurrencySymbol, resolveCurrencyCode } from '@/utils/currency';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import * as Print from 'expo-print';
@@ -35,6 +38,11 @@ export default function InvoiceDetailScreen() {
     templates,
   } = useData();
   const { user } = useUser();
+  const currencyCode = resolveCurrencyCode(user || undefined);
+  const currencySymbol = getCurrencySymbol(currencyCode);
+  const formatMoney = (value: number, options = {}) => formatCurrency(value, currencyCode, options);
+  const { role, canAccess } = useRoleGuard(ROLE_GROUPS.app);
+  const canManageInvoice = hasRole(role, ROLE_GROUPS.business);
   
   const [paymentAmount, setPaymentAmount] = useState('');
   const [invoice, setInvoice] = useState(getInvoiceById(id as string));
@@ -73,6 +81,10 @@ export default function InvoiceDetailScreen() {
     ? companyDetails.join('<br>')
     : 'support@ledgerly.com';
 
+  if (!canAccess) {
+    return null;
+  }
+
   if (!invoice) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
@@ -89,8 +101,15 @@ export default function InvoiceDetailScreen() {
   const daysOverdue = Math.floor(
     (new Date().getTime() - new Date(invoice.dueDate).getTime()) / (1000 * 60 * 60 * 24)
   );
-  const subtotal = invoice.items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
-  const taxAmount = subtotal * 0.085;
+  const subtotal = Number.isFinite(Number(invoice.subtotal))
+    ? Number(invoice.subtotal)
+    : invoice.items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
+  const taxRate = Number.isFinite(Number(invoice.taxRateUsed)) ? Number(invoice.taxRateUsed) : 0;
+  const taxName = invoice.taxName || 'Tax';
+  const taxAmount = Number.isFinite(Number(invoice.taxAmount))
+    ? Number(invoice.taxAmount)
+    : (taxRate ? subtotal * (taxRate / 100) : 0);
+  const showTax = taxAmount > 0 || taxRate > 0;
   const balanceDue = invoice.amount - invoice.paidAmount;
 
   const handleRecordPayment = async () => {
@@ -182,7 +201,7 @@ export default function InvoiceDetailScreen() {
       : '';
     const templateLabel = (resolvedTemplate?.name || resolvedTemplate?.id || 'Template').toUpperCase();
     const paymentTerms = resolvedTemplate?.paymentTerms || 'net-30';
-    const currency = resolvedTemplate?.currency || 'USD';
+    const currency = resolvedTemplate?.currency || currencyCode || 'USD';
 
     const customerMarkup = invoice.customer
       ? `
@@ -280,15 +299,15 @@ export default function InvoiceDetailScreen() {
                   ${invoice.items
                     .map((item, index) => {
                       const lineSubtotal = item.unitPrice * item.quantity;
-                      const lineTax = lineSubtotal * 0.085;
-                      const lineTotal = lineSubtotal + lineTax;
+                      const lineTotal = lineSubtotal;
+                      const taxLabel = showTax ? `${taxRate}%` : '-';
                       return `
                         <tr style="${index % 2 === 0 ? `background: ${templateTheme.accent};` : ''} border-bottom: 1px solid #e9ecef;">
                           <td style="padding: 15px; font-size: 14px; color: #495057;">${item.description}</td>
                           <td style="padding: 15px; font-size: 14px; color: #495057;">${item.quantity}</td>
-                          <td style="padding: 15px; font-size: 14px; color: #495057;">${currency} ${item.unitPrice.toFixed(2)}</td>
-                          <td style="padding: 15px; font-size: 14px; color: #495057;">8.5%</td>
-                          <td style="padding: 15px; font-size: 14px; font-weight: bold; color: #495057;">${currency} ${lineTotal.toFixed(2)}</td>
+                          <td style="padding: 15px; font-size: 14px; color: #495057;">${formatMoney(item.unitPrice)}</td>
+                          <td style="padding: 15px; font-size: 14px; color: #495057;">${taxLabel}</td>
+                          <td style="padding: 15px; font-size: 14px; font-weight: bold; color: #495057;">${formatMoney(lineTotal)}</td>
                         </tr>
                       `;
                     })
@@ -299,15 +318,17 @@ export default function InvoiceDetailScreen() {
               <div style="margin-top: 30px; padding-top: 20px; border-top: 2px solid ${templateTheme.primary}; text-align: right;">
                 <div style="margin-bottom: 10px;">
                   <span style="color: #6c757d; font-size: 14px;">Subtotal:</span>
-                  <span style="font-weight: bold; color: #495057; margin-left: 20px; font-size: 16px;">${currency} ${subtotal.toFixed(2)}</span>
+                  <span style="font-weight: bold; color: #495057; margin-left: 20px; font-size: 16px;">${formatMoney(subtotal)}</span>
                 </div>
-                <div style="margin-bottom: 20px;">
-                  <span style="color: #6c757d; font-size: 14px;">Tax:</span>
-                  <span style="font-weight: bold; color: #495057; margin-left: 20px; font-size: 16px;">${currency} ${taxAmount.toFixed(2)}</span>
-                </div>
+                ${showTax ? `
+                  <div style="margin-bottom: 20px;">
+                    <span style="color: #6c757d; font-size: 14px;">${taxName} (${taxRate}%):</span>
+                    <span style="font-weight: bold; color: #495057; margin-left: 20px; font-size: 16px;">${formatMoney(taxAmount)}</span>
+                  </div>
+                ` : ''}
                 <div>
                   <span style="color: ${templateTheme.primary}; font-weight: bold; font-size: 20px;">Total:</span>
-                  <span style="color: ${templateTheme.primary}; font-weight: bold; margin-left: 20px; font-size: 24px;">${currency} ${invoice.amount.toFixed(2)}</span>
+                  <span style="color: ${templateTheme.primary}; font-weight: bold; margin-left: 20px; font-size: 24px;">${formatMoney(invoice.amount)}</span>
                 </div>
               </div>
 
@@ -404,16 +425,16 @@ Status: ${invoice.status.toUpperCase()}
 ITEMS:
 ------
 ${invoice.items.map(item => 
-  `${item.description} x${item.quantity} @ $${item.unitPrice.toFixed(2)} = $${(item.unitPrice * item.quantity).toFixed(2)}`
+  `${item.description} x${item.quantity} @ ${formatMoney(item.unitPrice)} = ${formatMoney(item.unitPrice * item.quantity)}`
 ).join('\n')}
 
 SUMMARY:
 --------
-Subtotal: $${subtotal.toFixed(2)}
-Tax (8.5%): $${taxAmount.toFixed(2)}
-Total Amount: $${invoice.amount.toFixed(2)}
-Amount Paid: $${invoice.paidAmount.toFixed(2)}
-Balance Due: $${balanceDue.toFixed(2)}
+Subtotal: ${formatMoney(subtotal)}
+${showTax ? `${taxName} (${taxRate}%): ${formatMoney(taxAmount)}` : ''}
+Total Amount: ${formatMoney(invoice.amount)}
+Amount Paid: ${formatMoney(invoice.paidAmount)}
+Balance Due: ${formatMoney(balanceDue)}
 
 ${invoice.notes ? `\nNotes:\n${invoice.notes}` : ''}
           `.trim();
@@ -490,9 +511,11 @@ ${invoice.notes ? `\nNotes:\n${invoice.notes}` : ''}
               {invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)}
             </Text>
           </View>
-          <TouchableOpacity onPress={handleDeleteInvoice}>
-            <Ionicons name="trash-outline" size={24} color={colors.error} />
-          </TouchableOpacity>
+          {canManageInvoice && (
+            <TouchableOpacity onPress={handleDeleteInvoice}>
+              <Ionicons name="trash-outline" size={24} color={colors.error} />
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Dates */}
@@ -530,12 +553,12 @@ ${invoice.notes ? `\nNotes:\n${invoice.notes}` : ''}
         )}
 
         {/* Payment Record Section */}
-        {invoice.status !== 'paid' && (
+        {canManageInvoice && invoice.status !== 'paid' && (
           <View style={[styles.section, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>Record Payment</Text>
             <View style={styles.paymentInputRow}>
               <View style={[styles.paymentInputContainer, { backgroundColor: colors.background, borderColor: colors.border }]}>
-                <Text style={[styles.currencySymbol, { color: colors.text }]}>$</Text>
+                <Text style={[styles.currencySymbol, { color: colors.text }]}>{currencySymbol}</Text>
                 <TextInput
                   style={[styles.paymentInput, { color: colors.text }]}
                   value={paymentAmount}
@@ -554,7 +577,7 @@ ${invoice.notes ? `\nNotes:\n${invoice.notes}` : ''}
               </TouchableOpacity>
             </View>
             <Text style={[styles.paymentNote, { color: colors.textTertiary }]}>
-              Balance Due: ${balanceDue.toFixed(2)}
+              Balance Due: ${formatMoney(balanceDue)}
             </Text>
           </View>
         )}
@@ -577,10 +600,10 @@ ${invoice.notes ? `\nNotes:\n${invoice.notes}` : ''}
               </View>
               <View style={styles.itemAmount}>
                 <Text style={[styles.itemPrice, { color: colors.textTertiary }]}>
-                  ${item.unitPrice.toFixed(2)} × {item.quantity}
+                  {formatMoney(item.unitPrice)} × {item.quantity}
                 </Text>
                 <Text style={[styles.itemTotal, { color: colors.text }]}>
-                  ${(item.unitPrice * item.quantity).toFixed(2)}
+                  {formatMoney(item.unitPrice * item.quantity)}
                 </Text>
               </View>
             </View>
@@ -591,23 +614,27 @@ ${invoice.notes ? `\nNotes:\n${invoice.notes}` : ''}
         <View style={[styles.section, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <View style={styles.summaryRow}>
             <Text style={[styles.summaryLabel, { color: colors.text }]}>Subtotal</Text>
-            <Text style={[styles.summaryValue, { color: colors.text }]}>${subtotal.toFixed(2)}</Text>
+            <Text style={[styles.summaryValue, { color: colors.text }]}>{formatMoney(subtotal)}</Text>
           </View>
-          <View style={styles.summaryRow}>
-            <Text style={[styles.summaryLabel, { color: colors.text }]}>Tax (8.5%)</Text>
-            <Text style={[styles.summaryValue, { color: colors.text }]}>${taxAmount.toFixed(2)}</Text>
-          </View>
+          {showTax && (
+            <View style={styles.summaryRow}>
+              <Text style={[styles.summaryLabel, { color: colors.text }]}>
+                {`${taxName} (${taxRate}%)`}
+              </Text>
+              <Text style={[styles.summaryValue, { color: colors.text }]}>{formatMoney(taxAmount)}</Text>
+            </View>
+          )}
           <View style={[styles.totalRow, { borderTopColor: colors.border }]}>
             <Text style={[styles.totalLabel, { color: colors.text }]}>Total Amount</Text>
-            <Text style={[styles.totalValue, { color: colors.text }]}>${invoice.amount.toFixed(2)}</Text>
+            <Text style={[styles.totalValue, { color: colors.text }]}>{formatMoney(invoice.amount)}</Text>
           </View>
           <View style={styles.summaryRow}>
             <Text style={[styles.summaryLabel, { color: colors.text }]}>Amount Paid</Text>
-            <Text style={[styles.summaryValue, { color: colors.text }]}>${invoice.paidAmount.toFixed(2)}</Text>
+            <Text style={[styles.summaryValue, { color: colors.text }]}>{formatMoney(invoice.paidAmount)}</Text>
           </View>
           <View style={[styles.balanceRow, { borderTopColor: colors.border }]}>
             <Text style={[styles.balanceLabel, { color: colors.text }]}>Balance Due</Text>
-            <Text style={[styles.balanceValue, { color: colors.text }]}>${balanceDue.toFixed(2)}</Text>
+            <Text style={[styles.balanceValue, { color: colors.text }]}>{formatMoney(balanceDue)}</Text>
           </View>
         </View>
 
@@ -621,7 +648,7 @@ ${invoice.notes ? `\nNotes:\n${invoice.notes}` : ''}
 
         {/* Action Buttons */}
         <View style={styles.actionButtons}>
-          {invoice.status !== 'paid' && (
+          {canManageInvoice && invoice.status !== 'paid' && (
             <TouchableOpacity 
               style={[styles.markPaidButton, { backgroundColor: colors.success }]}
               onPress={handleMarkAsPaid}
@@ -632,13 +659,15 @@ ${invoice.notes ? `\nNotes:\n${invoice.notes}` : ''}
           )}
           
           <View style={styles.secondaryActions}>
-            <TouchableOpacity 
-              style={[styles.secondaryButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
-              onPress={handleSendInvoice}
-            >
-              <Ionicons name="send-outline" size={20} color={colors.primary500} />
-              <Text style={[styles.secondaryButtonText, { color: colors.primary500 }]}>Send Invoice</Text>
-            </TouchableOpacity>
+            {canManageInvoice && (
+              <TouchableOpacity 
+                style={[styles.secondaryButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
+                onPress={handleSendInvoice}
+              >
+                <Ionicons name="send-outline" size={20} color={colors.primary500} />
+                <Text style={[styles.secondaryButtonText, { color: colors.primary500 }]}>Send Invoice</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity 
               style={[styles.secondaryButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
               onPress={handleDownloadPDF}

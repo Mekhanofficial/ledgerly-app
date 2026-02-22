@@ -19,6 +19,9 @@ import { router } from 'expo-router';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { apiGet, apiPost } from '@/services/apiClient';
+import { ROLE_GROUPS } from '@/utils/roleAccess';
+import { useRoleGuard } from '@/hooks/useRoleGuard';
+import { resolveCurrencyCode } from '@/utils/currency';
 import {
   TIME_RANGE_OPTIONS,
   TimeRange,
@@ -71,6 +74,7 @@ const REPORT_TYPES: { id: ReportType; label: string; icon: string }[] = [
 
 export default function ReportsScreen() {
   const { colors } = useTheme();
+  const { user } = useUser();
   const { 
     invoices, 
     receipts, 
@@ -80,6 +84,8 @@ export default function ReportsScreen() {
     refreshData,
     loading,
   } = useData();
+  const { canAccess } = useRoleGuard(ROLE_GROUPS.reports);
+  const currencyCode = resolveCurrencyCode(user || undefined);
   
   const [selectedRange, setSelectedRange] = useState<TimeRange>('week');
   const [selectedReportType, setSelectedReportType] = useState<ReportType>('summary');
@@ -105,10 +111,6 @@ export default function ReportsScreen() {
     
     return () => clearInterval(interval);
   }, []);
-
-  useEffect(() => {
-    loadReportHistory();
-  }, [loadReportHistory]);
 
   const mapReportHistory = useCallback((report: any): ReportHistoryItem => {
     return {
@@ -137,6 +139,10 @@ export default function ReportsScreen() {
     }
   }, [mapReportHistory]);
 
+  useEffect(() => {
+    loadReportHistory();
+  }, [loadReportHistory]);
+
   const recordReportDownload = useCallback(
     async (id: string) => {
       try {
@@ -162,7 +168,6 @@ export default function ReportsScreen() {
 
   const timeRanges = TIME_RANGE_OPTIONS;
 
-  const { user } = useUser();
   const companyName = (
     user?.businessName?.trim() ||
     `${user?.firstName || ''} ${user?.lastName || ''}`.trim() ||
@@ -236,6 +241,7 @@ export default function ReportsScreen() {
         invoiceSummary: invoiceStats,
         receiptSummary: receiptStats,
         totalRevenue,
+        currencyCode,
         reportTitle: `${meta.label} Report`,
         reportTypeLabel: meta.label,
       });
@@ -549,6 +555,10 @@ export default function ReportsScreen() {
   const handleScheduleReport = () => {
     router.push('/(modals)/schedule-report');
   };
+
+  if (!canAccess) {
+    return null;
+  }
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>

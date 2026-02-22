@@ -17,6 +17,8 @@ import { useData } from '@/context/DataContext';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { showMessage } from 'react-native-flash-message';
+import { ROLE_GROUPS } from '@/utils/roleAccess';
+import { useRoleGuard } from '@/hooks/useRoleGuard';
 
 
 const UNITS = ['Piece', 'Kilogram', 'Liter', 'Meter', 'Box', 'Package', 'Set'];
@@ -24,6 +26,7 @@ const UNITS = ['Piece', 'Kilogram', 'Liter', 'Meter', 'Box', 'Package', 'Set'];
 export default function AddProductScreen() {
   const { colors } = useTheme();
   const { createProduct, createCategory, categories } = useData();
+  const { canAccess } = useRoleGuard(ROLE_GROUPS.inventoryManage);
   const [productName, setProductName] = useState('');
   const [sku, setSku] = useState('');
   const [category, setCategory] = useState('');
@@ -207,6 +210,10 @@ export default function AddProductScreen() {
   };
 
   const profitData = calculateProfitMargin();
+
+  if (!canAccess) {
+    return null;
+  }
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>

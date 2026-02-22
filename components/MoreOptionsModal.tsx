@@ -2,7 +2,10 @@
 import { useTheme } from '@/context/ThemeContext';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
+import { useUser } from '@/context/UserContext';
+import { hasRole, ROLE_GROUPS } from '@/utils/roleAccess';
 import {
+  Alert,
   Modal,
   ScrollView,
   StyleSheet,
@@ -16,7 +19,7 @@ export interface MoreOption {
   icon: string;
   label: string;
   screen?: string;
-  onPress?: () => void;
+  onPress?: () => void | Promise<void>;
 }
 
 interface MoreOptionsModalProps {
@@ -31,68 +34,136 @@ export default function MoreOptionsModal({
   options 
 }: MoreOptionsModalProps) {
   const { colors, toggleTheme, isDark } = useTheme();
+  const { user, logoutUser } = useUser();
+  const role = user?.role;
+  const canAccessReceipts = hasRole(role, ROLE_GROUPS.reports);
+  const canAccessReports = hasRole(role, ROLE_GROUPS.reports);
+  const canAccessCustomers = hasRole(role, ROLE_GROUPS.business);
+  const canAccessDocuments = hasRole(role, ROLE_GROUPS.business);
+  const canAccessRecurring = hasRole(role, ROLE_GROUPS.business);
+  const canAccessSettings = hasRole(role, ROLE_GROUPS.settings);
+  const canAccessSupport = hasRole(role, ROLE_GROUPS.support);
+
+  const handleLogout = () => {
+    Alert.alert(
+      'Sign Out',
+      'Are you sure you want to sign out?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sign Out',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await logoutUser();
+            } finally {
+              router.replace('/(auth)/login');
+            }
+          },
+        },
+      ]
+    );
+  };
   
   const defaultOptions: MoreOption[] = [
+    ...(canAccessReceipts
+      ? [
+          {
+            id: 'receipts',
+            icon: 'receipt-outline',
+            label: 'Receipts',
+            screen: '/(more)/receipt',
+          },
+        ]
+      : []),
+    ...(canAccessCustomers
+      ? [
+          {
+            id: 'customers',
+            icon: 'people-outline',
+            label: 'Customers',
+            screen: '/(more)/customer',
+          },
+        ]
+      : []),
+    ...(canAccessDocuments
+      ? [
+          {
+            id: 'documents',
+            icon: 'folder-open-outline',
+            label: 'Documents',
+            screen: '/(more)/documents',
+          },
+        ]
+      : []),
+    ...(canAccessReports
+      ? [
+          {
+            id: 'reports',
+            icon: 'stats-chart-outline',
+            label: 'Reports',
+            screen: '/(more)/reports',
+          },
+        ]
+      : []),
+    ...(canAccessRecurring
+      ? [
+          {
+            id: 'recurring',
+            icon: 'repeat-outline',
+            label: 'Recurring Invoices',
+            screen: '/(tabs)/recurring',
+          },
+        ]
+      : []),
     {
-      id: '1',
-      icon: 'receipt-outline',
-      label: 'Receipts',
-      screen: '/(more)/receipt',
-    },
-    {
-      id: '2',
-      icon: 'people-outline',
-      label: 'Customers',
-      screen: '/(more)/customer',
-    },
-    {
-      id: '3',
-      icon: 'stats-chart-outline',
-      label: 'Reports',
-      screen: '/(more)/reports',
-    },
-        {
-      id: '4',
+      id: 'theme',
       icon: isDark ? 'sunny-outline' : 'moon-outline',
       label: isDark ? 'Light Mode' : 'Dark Mode',
       onPress: toggleTheme,
     },
+    ...(canAccessSupport
+      ? [
+          {
+            id: 'support',
+            icon: 'help-circle-outline',
+            label: 'Help & Support',
+            screen: '/(modals)/help',
+          },
+          {
+            id: 'live-chat',
+            icon: 'chatbubble-ellipses-outline',
+            label: 'Live Chat',
+            screen: '/(modals)/live-chat',
+          },
+        ]
+      : []),
+    ...(canAccessSettings
+      ? [
+          {
+            id: 'settings',
+            icon: 'settings-outline',
+            label: 'Settings',
+            screen: '/(modals)/settings',
+          },
+        ]
+      : []),
     {
-      id: '5',
-      icon: 'help-circle-outline',
-      label: 'Help & Support',
-      screen: '/(modals)/help',
-    },
-    {
-      id: '6',
-      icon: 'chatbubble-ellipses-outline',
-      label: 'Live Chat',
-      screen: '/(modals)/live-chat',
-    },
-    {
-      id: '7',
-      icon: 'settings-outline',
-      label: 'Settings',
-      screen: '/(modals)/settings',
-    },
-    {
-      id: '8',
+      id: 'logout',
       icon: 'log-out-outline',
       label: 'Logout',
-      onPress: () => {
-        console.log('Logout pressed');
-      },
+      onPress: handleLogout,
     },
   ];
 
   const modalOptions = options || defaultOptions;
 
-  const handleOptionPress = (option: MoreOption) => {
+  const handleOptionPress = async (option: MoreOption) => {
     onClose();
     if (option.screen) {
       router.push(option.screen as any);
     } else if (option.onPress) {
-      option.onPress();
+      await Promise.resolve(option.onPress());
     }
   };
 
@@ -121,7 +192,9 @@ export default function MoreOptionsModal({
               <TouchableOpacity
                 key={option.id}
                 style={[styles.optionItem, { borderBottomColor: colors.border }]}
-                onPress={() => handleOptionPress(option)}
+                onPress={() => {
+                  void handleOptionPress(option);
+                }}
               >
                 <View style={[styles.optionIconContainer, { backgroundColor: colors.primary50 }]}>
                   <Ionicons name={option.icon as any} size={24} color={colors.primary500} />

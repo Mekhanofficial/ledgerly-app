@@ -15,6 +15,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/context/ThemeContext';
 import { router } from 'expo-router';
 import { useData } from '@/context/DataContext';
+import { hasRole, ROLE_GROUPS } from '@/utils/roleAccess';
+import { useRoleGuard } from '@/hooks/useRoleGuard';
 
 const { width, height } = Dimensions.get('window');
 const isTablet = width >= 768;
@@ -31,6 +33,8 @@ export default function ManageCategoriesScreen() {
     refreshData,
     loading,
   } = useData();
+  const { role, canAccess } = useRoleGuard(ROLE_GROUPS.business);
+  const canManageCategories = hasRole(role, ROLE_GROUPS.inventoryManage);
   const [newCategory, setNewCategory] = useState('');
   const [editingCategory, setEditingCategory] = useState(null);
   const [editText, setEditText] = useState('');
@@ -73,6 +77,10 @@ export default function ManageCategoriesScreen() {
 
     return Array.from(categoryTotals.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [categories, inventory]);
+
+  if (!canAccess) {
+    return null;
+  }
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -224,37 +232,39 @@ export default function ManageCategoriesScreen() {
         </View>
 
         {/* Add New Category */}
-        <View style={[styles.section, { 
-          backgroundColor: colors.surface, 
-          borderColor: colors.border,
-          marginHorizontal: width * 0.05,
-          shadowColor: colors.shadow
-        }]}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Add New Category</Text>
-          <View style={styles.addCategoryContainer}>
-            <TextInput
-              style={[styles.addCategoryInput, { 
-                backgroundColor: colors.background, 
-                borderColor: colors.border, 
-                color: colors.text,
-                fontSize: isSmallScreen ? 14 : 16
-              }]}
-              placeholder="Enter category name"
-              placeholderTextColor={colors.textTertiary}
-              value={newCategory}
-              onChangeText={setNewCategory}
-            />
-            <TouchableOpacity 
-              style={[styles.addCategoryButton, { backgroundColor: colors.primary500 }]}
-              onPress={handleAddCategory}
-            >
-              <Ionicons name="add" size={isSmallScreen ? 18 : 20} color="white" />
-              <Text style={[styles.addCategoryButtonText, { fontSize: isSmallScreen ? 14 : 16 }]}>
-                Add
-              </Text>
-            </TouchableOpacity>
+        {canManageCategories && (
+          <View style={[styles.section, { 
+            backgroundColor: colors.surface, 
+            borderColor: colors.border,
+            marginHorizontal: width * 0.05,
+            shadowColor: colors.shadow
+          }]}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Add New Category</Text>
+            <View style={styles.addCategoryContainer}>
+              <TextInput
+                style={[styles.addCategoryInput, { 
+                  backgroundColor: colors.background, 
+                  borderColor: colors.border, 
+                  color: colors.text,
+                  fontSize: isSmallScreen ? 14 : 16
+                }]}
+                placeholder="Enter category name"
+                placeholderTextColor={colors.textTertiary}
+                value={newCategory}
+                onChangeText={setNewCategory}
+              />
+              <TouchableOpacity 
+                style={[styles.addCategoryButton, { backgroundColor: colors.primary500 }]}
+                onPress={handleAddCategory}
+              >
+                <Ionicons name="add" size={isSmallScreen ? 18 : 20} color="white" />
+                <Text style={[styles.addCategoryButtonText, { fontSize: isSmallScreen ? 14 : 16 }]}>
+                  Add
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
-        </View>
+        )}
 
         {/* Categories List */}
         <View style={[styles.section, { 
@@ -275,7 +285,7 @@ export default function ManageCategoriesScreen() {
               <Ionicons name="grid-outline" size={isSmallScreen ? 48 : 60} color={colors.textTertiary} />
               <Text style={[styles.emptyStateText, { color: colors.text }]}>No categories yet</Text>
               <Text style={[styles.emptyStateSubtext, { color: colors.textTertiary }]}>
-                Add your first category above
+                {canManageCategories ? 'Add your first category above' : 'Contact an admin to add categories'}
               </Text>
             </View>
           ) : (
@@ -300,32 +310,34 @@ export default function ManageCategoriesScreen() {
                         {category.name.charAt(0).toUpperCase()}
                       </Text>
                     </View>
-                    <View style={styles.categoryActions}>
-                      <TouchableOpacity 
-                        onPress={() => {
-                          if (!category?.id) {
-                            Alert.alert('Not Supported', 'This category comes from product data. Edit the products instead.');
-                            return;
-                          }
-                          setEditingCategory(category.name);
-                          setEditText(category.name);
-                        }}
-                        style={styles.actionButton}
-                        hitSlop={{ top: 5, bottom: 5, left: 5, right: 5 }}
-                      >
-                        <Ionicons name="create-outline" size={isSmallScreen ? 16 : 18} color={colors.primary500} />
-                      </TouchableOpacity>
-                      <TouchableOpacity 
-                        onPress={() => handleDeleteCategory(category)}
-                        style={styles.actionButton}
-                        hitSlop={{ top: 5, bottom: 5, left: 5, right: 5 }}
-                      >
-                        <Ionicons name="trash-outline" size={isSmallScreen ? 16 : 18} color={colors.error} />
-                      </TouchableOpacity>
-                    </View>
+                    {canManageCategories && (
+                      <View style={styles.categoryActions}>
+                        <TouchableOpacity 
+                          onPress={() => {
+                            if (!category?.id) {
+                              Alert.alert('Not Supported', 'This category comes from product data. Edit the products instead.');
+                              return;
+                            }
+                            setEditingCategory(category.name);
+                            setEditText(category.name);
+                          }}
+                          style={styles.actionButton}
+                          hitSlop={{ top: 5, bottom: 5, left: 5, right: 5 }}
+                        >
+                          <Ionicons name="create-outline" size={isSmallScreen ? 16 : 18} color={colors.primary500} />
+                        </TouchableOpacity>
+                        <TouchableOpacity 
+                          onPress={() => handleDeleteCategory(category)}
+                          style={styles.actionButton}
+                          hitSlop={{ top: 5, bottom: 5, left: 5, right: 5 }}
+                        >
+                          <Ionicons name="trash-outline" size={isSmallScreen ? 16 : 18} color={colors.error} />
+                        </TouchableOpacity>
+                      </View>
+                    )}
                   </View>
 
-                  {editingCategory === category.name ? (
+                  {canManageCategories && editingCategory === category.name ? (
                     <View style={styles.editContainer}>
                       <TextInput
                         style={[styles.editInput, { 

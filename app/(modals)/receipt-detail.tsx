@@ -23,6 +23,8 @@ import * as Sharing from 'expo-sharing';
 import { buildTemplateVariables, resolveTemplateTheme } from '@/utils/templateStyles';
 import { buildTemplateDecorations } from '@/utils/templateDecorations';
 import { resolveTemplateStyleVariant } from '@/utils/templateStyleVariants';
+import { ROLE_GROUPS } from '@/utils/roleAccess';
+import { useRoleGuard } from '@/hooks/useRoleGuard';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -31,6 +33,7 @@ export default function ReceiptDetailScreen() {
   const { id } = useLocalSearchParams();
   const { getReceiptById, deleteReceipt, updateReceipt, selectedReceiptTemplate, templates } = useData();
   const { user } = useUser();
+  const { canAccess } = useRoleGuard(ROLE_GROUPS.reports);
   const { width: windowWidth } = useWindowDimensions();
   
   const [receipt, setReceipt] = useState(getReceiptById(id as string));
@@ -68,9 +71,18 @@ export default function ReceiptDetailScreen() {
   const companyContactMarkup = companyDetails.length
     ? companyDetails.join('<br>')
     : 'support@ledgerly.com';
+
+  if (!canAccess) {
+    return null;
+  }
   const companyDetailLines = companyDetails.length
     ? companyDetails
     : ['support@ledgerly.com'];
+
+  const taxRate = Number.isFinite(Number(receipt.taxRateUsed)) ? Number(receipt.taxRateUsed) : 0;
+  const taxName = receipt.taxName || 'Tax';
+  const taxAmount = Number.isFinite(Number(receipt.taxAmount)) ? Number(receipt.taxAmount) : Number(receipt.tax) || 0;
+  const showTax = taxAmount > 0 || taxRate > 0;
 
   // Responsive calculations
   const isSmallScreen = windowWidth < 375;
@@ -465,10 +477,12 @@ export default function ReceiptDetailScreen() {
                   <span>-${formatAmount(receipt.discount)}</span>
                 </div>
               ` : ''}
-              <div class="summary-row">
-                <span>Tax (8.5%):</span>
-                <span>${formatAmount(receipt.tax)}</span>
-              </div>
+              ${showTax ? `
+                <div class="summary-row">
+                  <span>${taxName} (${taxRate}%):</span>
+                  <span>${formatAmount(taxAmount)}</span>
+                </div>
+              ` : ''}
               <div class="total-row">
                 <span>Total Amount:</span>
                 <span>${formatAmount(receipt.amount)}</span>
@@ -919,26 +933,28 @@ export default function ReceiptDetailScreen() {
               </Text>
             </View>
           )}
-          <View style={[styles.summaryRow, { marginBottom: isSmallScreen ? 8 : 12 }]}>
-            <Text style={[
-              styles.summaryLabel, 
-              { 
-                color: colors.text,
-                fontSize: isSmallScreen ? 14 : 16
-              }
-            ]}>
-              Tax (8.5%)
-            </Text>
-            <Text style={[
-              styles.summaryValue, 
-              { 
-                color: colors.text,
-                fontSize: isSmallScreen ? 14 : 16
-              }
-            ]}>
-              {formatAmount(receipt.tax)}
-            </Text>
-          </View>
+          {showTax && (
+            <View style={[styles.summaryRow, { marginBottom: isSmallScreen ? 8 : 12 }]}>
+              <Text style={[
+                styles.summaryLabel, 
+                { 
+                  color: colors.text,
+                  fontSize: isSmallScreen ? 14 : 16
+                }
+              ]}>
+                {`${taxName} (${taxRate}%)`}
+              </Text>
+              <Text style={[
+                styles.summaryValue, 
+                { 
+                  color: colors.text,
+                  fontSize: isSmallScreen ? 14 : 16
+                }
+              ]}>
+                {formatAmount(taxAmount)}
+              </Text>
+            </View>
+          )}
           <View style={[
             styles.totalRow, 
             { 

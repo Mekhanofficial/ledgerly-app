@@ -3,6 +3,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Template } from '@/context/DataContext';
 import { resolveTemplateTheme } from '@/utils/templateStyles';
 import { resolveTemplateStyleVariant } from '@/utils/templateStyleVariants';
+import { useUser } from '@/context/UserContext';
+import { getCurrencySymbol, resolveCurrencyCode } from '@/utils/currency';
 
 type PreviewSize = 'compact' | 'full';
 
@@ -15,6 +17,9 @@ const getMonoFont = () =>
   Platform.OS === 'ios' ? 'Courier' : 'monospace';
 
 export default function TemplatePreview({ template, size = 'compact' }: TemplatePreviewProps) {
+  const { user } = useUser();
+  const currencySymbol = getCurrencySymbol(resolveCurrencyCode(user || undefined));
+  const withSymbol = (value: string) => value.replace(/\$/g, currencySymbol);
   const theme = resolveTemplateTheme(template);
   const variant = resolveTemplateStyleVariant(template.id, template);
   const isCompact = size === 'compact';
@@ -120,8 +125,8 @@ export default function TemplatePreview({ template, size = 'compact' }: Template
             <Text style={[styles.tableHeaderText, { fontSize: tableText }]}>Total</Text>
           </View>
           {[
-            { item: 'Design Retainer', qty: '1', total: '$850' },
-            { item: 'Consulting', qty: '1', total: '$650' },
+            { item: 'Design Retainer', qty: '1', total: withSymbol('$850') },
+            { item: 'Consulting', qty: '1', total: withSymbol('$650') },
           ].map((row) => (
             <View
               key={row.item}
@@ -139,7 +144,7 @@ export default function TemplatePreview({ template, size = 'compact' }: Template
 
         <View style={styles.totalRow}>
           <Text style={[styles.sectionLabel, { color: theme.secondary, fontSize: labelSize }]}>Total</Text>
-          <Text style={[styles.totalText, { color: theme.primary, fontSize: totalSize }]}>$2,538</Text>
+          <Text style={[styles.totalText, { color: theme.primary, fontSize: totalSize }]}>{withSymbol('$2,538')}</Text>
         </View>
       </View>
     </View>

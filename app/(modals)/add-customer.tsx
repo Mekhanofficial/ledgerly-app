@@ -15,10 +15,13 @@ import { useTheme } from '@/context/ThemeContext';
 import { router } from 'expo-router';
 import { useData } from '@/context/DataContext';
 import { showMessage } from 'react-native-flash-message';
+import { ROLE_GROUPS } from '@/utils/roleAccess';
+import { useRoleGuard } from '@/hooks/useRoleGuard';
 
 export default function AddCustomerScreen() {
   const { colors } = useTheme();
   const { createCustomer } = useData();
+  const { canAccess } = useRoleGuard(ROLE_GROUPS.business);
   
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -28,7 +31,12 @@ export default function AddCustomerScreen() {
   const [notes, setNotes] = useState('');
   const [status, setStatus] = useState<'active' | 'inactive'>('active');
   const [loading, setLoading] = useState(false);
+
   const [showStatusModal, setShowStatusModal] = useState(false);
+
+  if (!canAccess) {
+    return null;
+  }
 
   const validateForm = () => {
     if (!name.trim()) {

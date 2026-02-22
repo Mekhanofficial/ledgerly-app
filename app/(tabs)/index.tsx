@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, Platform, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import RevenueCard from '@/components/dashboard/RevenueCard';
@@ -10,12 +10,21 @@ import { useData } from '../../context/DataContext'; // FIXED IMPORT PATH
 import { useUser } from '../../context/UserContext'; // FIXED IMPORT PATH
 import { useState, useCallback } from 'react';
 import { router } from 'expo-router';
+import { normalizeRole } from '@/utils/roleAccess';
+import { formatCurrency, resolveCurrencyCode } from '@/utils/currency';
 
 export default function HomeScreen() {
   const { colors } = useTheme();
   const { dashboardStats, invoices, customers, refreshData, loading } = useData();
   const { user } = useUser(); // GET USER FROM CONTEXT
+  const role = normalizeRole(user?.role);
+  const isClient = role === 'client';
+  const currencyCode = resolveCurrencyCode(user || undefined);
+  const formatMoney = (value: number, options = {}) => formatCurrency(value, currencyCode, options);
+  const formatMoneyNoDecimals = (value: number) =>
+    formatMoney(value, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
   const [refreshing, setRefreshing] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   
   const currentDate = new Date();
   const formattedDate = currentDate.toLocaleDateString('en-US', {
@@ -36,6 +45,15 @@ export default function HomeScreen() {
     setRefreshing(false);
   }, [refreshData]);
 
+  const handleSearchPress = () => {
+    const trimmed = searchQuery.trim();
+    if (trimmed) {
+      router.push(`/(more)/search?q=${encodeURIComponent(trimmed)}`);
+    } else {
+      router.push('/(more)/search');
+    }
+  };
+
   // Get recent activity from invoices
   const recentActivity = invoices
     .slice(0, 5)
@@ -50,7 +68,7 @@ export default function HomeScreen() {
         hour: '2-digit',
         minute: '2-digit',
       }),
-      amount: `${invoice.amount.toLocaleString()}`,
+      amount: formatMoney(invoice.amount || 0),
       status: invoice.status,
     }));
 
@@ -70,7 +88,7 @@ export default function HomeScreen() {
       .map(c => ({
         id: c.id,
         type: 'High Outstanding',
-        message: `${c.name} has ${c.outstanding.toLocaleString()} outstanding`,
+        message: `${c.name} has ${formatMoneyNoDecimals(c.outstanding || 0)} outstanding`,
         colorType: 'warning' as const,
         icon: 'warning' as const,
       })),
@@ -104,6 +122,32 @@ export default function HomeScreen() {
             <Text style={[styles.greeting, { color: colors.textTertiary }]}>Welcome back,</Text>
             <Text style={[styles.userName, { color: colors.text }]}>{userName}</Text>
           </View>
+        </View>
+
+        {/* Search Bar */}
+        <View
+          style={[
+            styles.searchContainer,
+            {
+              backgroundColor: colors.surface,
+              borderColor: colors.border,
+              shadowColor: colors.shadow,
+            }
+          ]}
+        >
+          <Ionicons name="search-outline" size={20} color={colors.textTertiary} />
+          <TextInput
+            style={[styles.searchInput, { color: colors.text }]}
+            placeholder="Search invoices, customers, products..."
+            placeholderTextColor={colors.textTertiary}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            returnKeyType="search"
+            onSubmitEditing={handleSearchPress}
+          />
+          <TouchableOpacity onPress={handleSearchPress} style={styles.searchAction}>
+            <Ionicons name="arrow-forward" size={18} color={colors.primary500} />
+          </TouchableOpacity>
         </View>
 
         {/* Date and Download */}
@@ -141,38 +185,40 @@ export default function HomeScreen() {
         </View>
 
         {/* Dashboard Stats */}
-        <View style={styles.statsSection}>
-          <RevenueCard
-            title="Total Revenue"
-            value={`$${dashboardStats.totalRevenue.toLocaleString()}`}
-            change={`${dashboardStats.totalPaid > 0 ? '+' : ''}$${dashboardStats.totalPaid.toLocaleString()} collected`}
-            color={colors.success}
-            icon="trending-up"
-          />
-          <RevenueCard
-            title="Outstanding Payments"
-            value={`$${dashboardStats.outstandingPayments.toLocaleString()}`}
-            change={`${dashboardStats.overdueInvoices} overdue invoices`}
-            color={colors.warning}
-            icon="alert-circle"
-          />
-          <RevenueCard
-            title="Low Stock Alert"
-            value={`${dashboardStats.lowStockItems} items`}
-            change="Need restocking"
-            color={colors.error}
-            icon="warning"
-          />
-        </View>
+        {!isClient && (
+          <View style={styles.statsSection}>
+            <RevenueCard
+              title="Total Revenue"
+              value={formatMoneyNoDecimals(dashboardStats.totalRevenue || 0)}
+              change={`${dashboardStats.totalPaid > 0 ? '+' : ''}${formatMoneyNoDecimals(dashboardStats.totalPaid || 0)} collected`}
+              color={colors.success}
+              icon="trending-up"
+            />
+            <RevenueCard
+              title="Outstanding Payments"
+              value={formatMoneyNoDecimals(dashboardStats.outstandingPayments || 0)}
+              change={`${dashboardStats.overdueInvoices} overdue invoices`}
+              color={colors.warning}
+              icon="alert-circle"
+            />
+            <RevenueCard
+              title="Low Stock Alert"
+              value={`${dashboardStats.lowStockItems} items`}
+              change="Need restocking"
+              color={colors.error}
+              icon="warning"
+            />
+          </View>
+        )}
 
         {/* Quick Actions */}
-        <QuickActions />
+        {!isClient && <QuickActions />}
 
         {/* Recent Activity */}
         <RecentActivity activities={recentActivity} />
 
         {/* Alerts */}
-        <Alerts alerts={alerts} />
+        {!isClient && <Alerts alerts={alerts} />}
       </ScrollView>
     </SafeAreaView>
   );
@@ -223,6 +269,29 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08,
     shadowRadius: 12,
     elevation: 3,
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginHorizontal: 20,
+    marginBottom: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    gap: 10,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 3,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  searchAction: {
+    padding: 4,
   },
   date: {
     fontSize: 16,

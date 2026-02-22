@@ -13,6 +13,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext'; // FIXED IMPORT PATH
 import { router } from 'expo-router';
 import { useData } from '../../context/DataContext'; // FIXED IMPORT PATH
+import { hasRole, ROLE_GROUPS } from '@/utils/roleAccess';
+import { useRoleGuard } from '@/hooks/useRoleGuard';
+import { useUser } from '@/context/UserContext';
+import { formatCurrency, resolveCurrencyCode } from '@/utils/currency';
 
 type InvoiceStatus = 'paid' | 'pending' | 'overdue' | 'draft';
 type StatusFilter = 'all' | InvoiceStatus;
@@ -20,6 +24,13 @@ type StatusFilter = 'all' | InvoiceStatus;
 export default function InvoicesScreen() {
   const { colors } = useTheme();
   const { invoices, dashboardStats, deleteInvoice, refreshData, loading } = useData();
+  const { user } = useUser();
+  const { role, canAccess } = useRoleGuard(ROLE_GROUPS.app);
+  const canManageInvoices = hasRole(role, ROLE_GROUPS.business);
+  const currencyCode = resolveCurrencyCode(user || undefined);
+  const formatMoney = (value: number, options = {}) => formatCurrency(value, currencyCode, options);
+  const formatMoneyNoDecimals = (value: number) =>
+    formatMoney(value, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
   const [selectedFilter, setSelectedFilter] = useState<StatusFilter>('all');
   const [refreshing, setRefreshing] = useState(false);
 
@@ -55,6 +66,10 @@ export default function InvoicesScreen() {
     }
   };
 
+  if (!canAccess) {
+    return null;
+  }
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <ScrollView 
@@ -81,13 +96,15 @@ export default function InvoicesScreen() {
               Manage and track your invoices
             </Text>
           </View>
-          <TouchableOpacity 
-            style={[styles.addButton, { backgroundColor: colors.primary500 }]}
-            onPress={() => router.push('/(modals)/create-invoice')}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="add" size={24} color="white" />
-          </TouchableOpacity>
+          {canManageInvoices && (
+            <TouchableOpacity 
+              style={[styles.addButton, { backgroundColor: colors.primary500 }]}
+              onPress={() => router.push('/(modals)/create-invoice')}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="add" size={24} color="white" />
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Stats Cards */}
@@ -103,7 +120,7 @@ export default function InvoicesScreen() {
             <Text style={[styles.statTitle, { color: colors.textTertiary }]}>Total Invoices</Text>
             <Text style={[styles.statValue, { color: colors.text }]}>{dashboardStats.totalInvoices}</Text>
             <Text style={[styles.statSubtitle, { color: colors.textTertiary }]}>
-              ${dashboardStats.outstandingPayments.toLocaleString()} outstanding
+              {formatMoneyNoDecimals(dashboardStats.outstandingPayments || 0)} outstanding
             </Text>
           </View>
           <View style={[styles.statCard, { 
@@ -116,7 +133,7 @@ export default function InvoicesScreen() {
             </View>
             <Text style={[styles.statTitle, { color: colors.textTertiary }]}>Total Paid</Text>
             <Text style={[styles.statValue, { color: colors.text }]}>
-              ${dashboardStats.totalPaid.toLocaleString()}
+              {formatMoneyNoDecimals(dashboardStats.totalPaid || 0)}
             </Text>
             <Text style={[styles.statSubtitle, { color: colors.textTertiary }]}>Revenue collected</Text>
           </View>
@@ -176,7 +193,7 @@ export default function InvoicesScreen() {
           <Text style={[styles.invoiceCount, { color: colors.textTertiary }]}>
             {filteredInvoices.length} invoice{filteredInvoices.length !== 1 ? 's' : ''}
           </Text>
-          {filteredInvoices.length === 0 && (
+          {filteredInvoices.length === 0 && canManageInvoices && (
             <TouchableOpacity onPress={() => router.push('/(modals)/create-invoice')}>
               <Text style={[styles.createInvoiceLink, { color: colors.primary500 }]}>
                 Create your first invoice
@@ -210,7 +227,7 @@ export default function InvoicesScreen() {
                     </Text>
                   </View>
                   <Text style={[styles.invoiceAmount, { color: colors.text }]}>
-                    ${invoice.amount.toLocaleString()}
+                    {formatMoneyNoDecimals(invoice.amount || 0)}
                   </Text>
                 </View>
                 
@@ -241,15 +258,17 @@ export default function InvoicesScreen() {
                         {invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)}
                       </Text>
                     </View>
-                    <TouchableOpacity 
-                      onPress={(e) => {
-                        e.stopPropagation();
-                        handleDeleteInvoice(invoice.id);
-                      }}
-                      style={styles.deleteButton}
-                    >
-                      <Ionicons name="trash-outline" size={18} color={colors.error} />
-                    </TouchableOpacity>
+                    {canManageInvoices && (
+                      <TouchableOpacity 
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          handleDeleteInvoice(invoice.id);
+                        }}
+                        style={styles.deleteButton}
+                      >
+                        <Ionicons name="trash-outline" size={18} color={colors.error} />
+                      </TouchableOpacity>
+                    )}
                   </View>
                 </View>
               </TouchableOpacity>
@@ -263,13 +282,15 @@ export default function InvoicesScreen() {
                   ? `No ${selectedFilter} invoices` 
                   : 'Create your first invoice to get started'}
               </Text>
-              <TouchableOpacity 
-                style={[styles.createButton, { backgroundColor: colors.primary500 }]}
-                onPress={() => router.push('/(modals)/create-invoice')}
-              >
-                <Ionicons name="add" size={20} color="white" />
-                <Text style={styles.createButtonText}>Create Invoice</Text>
-              </TouchableOpacity>
+              {canManageInvoices && (
+                <TouchableOpacity 
+                  style={[styles.createButton, { backgroundColor: colors.primary500 }]}
+                  onPress={() => router.push('/(modals)/create-invoice')}
+                >
+                  <Ionicons name="add" size={20} color="white" />
+                  <Text style={styles.createButtonText}>Create Invoice</Text>
+                </TouchableOpacity>
+              )}
             </View>
           )}
         </View>

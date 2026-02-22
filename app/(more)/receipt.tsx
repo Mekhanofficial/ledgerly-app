@@ -15,6 +15,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/context/ThemeContext';
 import { useData } from '@/context/DataContext';
 import { LinearGradient } from 'expo-linear-gradient';
+import { ROLE_GROUPS } from '@/utils/roleAccess';
+import { useRoleGuard } from '@/hooks/useRoleGuard';
 
 interface Product {
   id: string;
@@ -25,12 +27,14 @@ interface Product {
 
 export default function ReceiptsScreen() {
   const { colors } = useTheme();
+  const { canAccess } = useRoleGuard(ROLE_GROUPS.reports);
   const { 
     receipts, 
     inventory: products, 
     addReceipt, 
     getReceiptById,
     createReceipt, // Also import createReceipt as fallback
+    taxSettings,
   } = useData();  
   
   const [searchQuery, setSearchQuery] = useState('');
@@ -52,6 +56,10 @@ export default function ReceiptsScreen() {
       setFilteredReceipts(filtered);
     }
   }, [searchQuery, receipts]);
+
+  if (!canAccess) {
+    return null;
+  }
 
   const getPaymentMethodIcon = (method: 'cash' | 'card' | 'transfer' | 'mobile') => {
     switch (method) {
@@ -82,6 +90,9 @@ export default function ReceiptsScreen() {
     }
   };
 
+  const taxEnabled = taxSettings?.taxEnabled ?? true;
+  const taxRate = Number.isFinite(Number(taxSettings?.taxRate)) ? Number(taxSettings?.taxRate) : 0;
+
   const toggleProductSelection = (product: Product) => {
     setSelectedProducts(prev => {
       const exists = prev.find(p => p.id === product.id);
@@ -94,9 +105,9 @@ export default function ReceiptsScreen() {
   };
 
   const calculateTotal = () => {
-    return selectedProducts.reduce((total, product) => {
-      return total + product.price;
-    }, 0).toFixed(2);
+    const subtotal = calculateSubtotal();
+    const tax = taxEnabled ? subtotal * (taxRate / 100) : 0;
+    return (subtotal + tax).toFixed(2);
   };
 
   const calculateSubtotal = () => {
@@ -113,7 +124,7 @@ export default function ReceiptsScreen() {
     
     try {
       const subtotal = calculateSubtotal();
-      const tax = subtotal * 0.085; // 8.5% tax
+      const tax = taxEnabled ? subtotal * (taxRate / 100) : 0;
       const amount = subtotal + tax;
 
       const receiptData = {

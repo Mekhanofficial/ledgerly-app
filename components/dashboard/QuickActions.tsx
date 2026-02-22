@@ -3,6 +3,8 @@ import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/context/ThemeContext';
 import { router } from 'expo-router';
+import { useUser } from '@/context/UserContext';
+import { hasRole, ROLE_GROUPS, normalizeRole } from '@/utils/roleAccess';
 
 const actions = [
   {
@@ -33,7 +35,24 @@ const actions = [
 
 export default function QuickActions() {
   const { colors } = useTheme();
-  
+  const { user } = useUser();
+  const role = normalizeRole(user?.role);
+  const isClient = role === 'client';
+  const canAccessReceipts = hasRole(role, ROLE_GROUPS.reports);
+  const canManageInventory = hasRole(role, ROLE_GROUPS.inventoryManage);
+  const canViewInventory = hasRole(role, ROLE_GROUPS.business);
+
+  if (isClient) {
+    return null;
+  }
+
+  const filteredActions = actions.filter((action) => {
+    if (action.id === '2' && !canAccessReceipts) return false;
+    if (action.id === '3' && !canManageInventory) return false;
+    if (action.id === '4' && !canViewInventory) return false;
+    return true;
+  });
+
   const getColor = (id: string) => {
     switch (id) {
       case '1': return colors.primary500;
@@ -48,7 +67,7 @@ export default function QuickActions() {
     <View style={styles.container}>
       <Text style={[styles.title, { color: colors.text }]}>Quick Actions</Text>
       <View style={styles.grid}>
-        {actions.map((action) => (
+        {filteredActions.map((action) => (
           <TouchableOpacity
             key={action.id}
             style={[

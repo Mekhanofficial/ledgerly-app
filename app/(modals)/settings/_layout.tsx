@@ -1,9 +1,25 @@
 // app/(modals)/settings/_layout.tsx (updated)
-import { Stack } from 'expo-router';
+import { Stack, usePathname } from 'expo-router';
+import { useMemo } from 'react';
 import { useTheme } from '@/context/ThemeContext';
+import { ROLE_GROUPS } from '@/utils/roleAccess';
+import { useRoleGuard } from '@/hooks/useRoleGuard';
 
 export default function SettingsLayout() {
   const { colors } = useTheme();
+  const pathname = usePathname();
+
+  const allowedRoles = useMemo(() => {
+    if (pathname.includes('/settings/templates')) return ROLE_GROUPS.business;
+    if (pathname.includes('/settings/team')) return ['admin', 'super_admin'];
+    return ROLE_GROUPS.settings;
+  }, [pathname]);
+
+  const { canAccess } = useRoleGuard(allowedRoles);
+
+  if (!canAccess) {
+    return null;
+  }
 
   return (
     <Stack
@@ -30,6 +46,13 @@ export default function SettingsLayout() {
         name="payment-method" 
         options={{ 
           title: 'Payment Methods',
+          presentation: 'card',
+        }} 
+      />
+      <Stack.Screen 
+        name="billing-plan" 
+        options={{ 
+          title: 'Billing & Plan',
           presentation: 'card',
         }} 
       />
@@ -88,6 +111,13 @@ export default function SettingsLayout() {
           title: 'Security',
           presentation: 'card',
         }} 
+      />
+      <Stack.Screen
+        name="team"
+        options={{
+          title: 'Team Management',
+          presentation: 'card',
+        }}
       />
       <Stack.Screen 
         name="storage-usage" 

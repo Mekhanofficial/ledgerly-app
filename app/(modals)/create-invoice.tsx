@@ -11,6 +11,7 @@ import {
   Modal,
   FlatList,
   Dimensions,
+  Switch,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/context/ThemeContext';
@@ -20,6 +21,8 @@ import { useData, Invoice, Template } from '@/context/DataContext';
 import { getTemplateById } from '@/utils/templateCatalog';
 import { showMessage } from 'react-native-flash-message';
 import TemplatePreviewModal from '@/components/templates/TemplatePreviewModal';
+import { ROLE_GROUPS } from '@/utils/roleAccess';
+import { useRoleGuard } from '@/hooks/useRoleGuard';
 
 const { width, height } = Dimensions.get('window');
 const isTablet = width >= 768;
@@ -43,8 +46,18 @@ interface Product {
   sku: string;
 }
 
+type RecurringFrequency = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly';
+
+const RECURRING_FREQUENCY_OPTIONS: Array<{ label: string; value: RecurringFrequency }> = [
+  { label: 'Weekly', value: 'weekly' },
+  { label: 'Monthly', value: 'monthly' },
+  { label: 'Quarterly', value: 'quarterly' },
+  { label: 'Yearly', value: 'yearly' },
+];
+
 export default function CreateInvoiceScreen() {
   const { colors } = useTheme();
+  const { canAccess } = useRoleGuard(ROLE_GROUPS.business);
   const {
     createInvoice,
     customers,
@@ -53,6 +66,7 @@ export default function CreateInvoiceScreen() {
     selectedInvoiceTemplate,
     setInvoiceTemplate,
     refreshTemplates,
+    taxSettings,
   } = useData();
   const { customerId, productId } = useLocalSearchParams<{ customerId?: string; productId?: string }>();
   
@@ -73,35 +87,96 @@ export default function CreateInvoiceScreen() {
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [previewTemplate, setPreviewTemplate] = useState<Template | null>(null);
+  const [showInvoicePreview, setShowInvoicePreview] = useState(false);
+  const [isRecurring, setIsRecurring] = useState(false);
+  const [recurringFrequency, setRecurringFrequency] = useState<RecurringFrequency>('monthly');
+  const [useTaxOverride, setUseTaxOverride] = useState(false);
+  const [taxRateOverride, setTaxRateOverride] = useState('');
+  const [taxAmountOverride, setTaxAmountOverride] = useState('');
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [upgradeMessage, setUpgradeMessage] = useState('');
 
-  const subtotal = items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
-  const tax = subtotal * 0.085;
-  const total = subtotal + tax;
+  const roundMoney = (value: number) => {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return 0;
+    return Math.round((parsed + Number.EPSILON) * 100) / 100;
+  };
+
+  const subtotal = roundMoney(items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0));
+  const taxEnabled = taxSettings?.taxEnabled ?? true;
+  const allowManualOverride = taxSettings?.allowManualOverride ?? true;
+  const taxName = taxSettings?.taxName || 'VAT';
+  const baseTaxRate = Number.isFinite(Number(taxSettings?.taxRate)) ? Number(taxSettings?.taxRate) : 0;
+
+  const overrideRateValue =
+    allowManualOverride && useTaxOverride && taxRateOverride !== '' ? Number(taxRateOverride) : NaN;
+  const overrideAmountValue =
+    allowManualOverride && useTaxOverride && taxAmountOverride !== '' ? Number(taxAmountOverride) : NaN;
+  const hasOverrideRate = Number.isFinite(overrideRateValue);
+  const hasOverrideAmount = Number.isFinite(overrideAmountValue);
+
+  const effectiveTaxRate = taxEnabled ? Math.max(0, hasOverrideRate ? overrideRateValue : baseTaxRate) : 0;
+  const tax = roundMoney(
+    taxEnabled
+      ? hasOverrideAmount
+        ? Math.max(0, overrideAmountValue)
+        : subtotal * (effectiveTaxRate / 100)
+      : 0
+  );
+  const total = roundMoney(subtotal + tax);
+  const isTaxOverridden =
+    taxEnabled && allowManualOverride && useTaxOverride && (hasOverrideRate || hasOverrideAmount);
+  const taxSummaryLabel = hasOverrideAmount
+    ? `${taxName} (manual amount)`
+    : `${taxName} (${effectiveTaxRate}%)`;
 
   const buildInvoicePayload = (status: Invoice['status']) => {
     const resolvedTemplate = selectedInvoiceTemplate || getTemplateById('standard');
-    return {
-    number: invoiceNumber,
-    customerId: selectedCustomerId || undefined,
-    customer,
-    customerEmail,
-    customerPhone,
-    issueDate: issueDate.toISOString(),
-    dueDate: dueDate.toISOString(),
-    amount: total,
-    paidAmount: 0,
-    status,
-    templateStyle:
-      resolvedTemplate?.templateStyle || resolvedTemplate?.id || undefined,
-    items: items.map(item => ({
-      id: item.id,
-      productId: item.productId,
-      description: item.description,
-      quantity: item.quantity,
-      unitPrice: item.unitPrice,
-    })),
-    notes,
+    const payload: Omit<Invoice, 'id' | 'createdAt'> = {
+      number: invoiceNumber,
+      customerId: selectedCustomerId || undefined,
+      customer,
+      customerEmail,
+      customerPhone,
+      issueDate: issueDate.toISOString(),
+      dueDate: dueDate.toISOString(),
+      amount: total,
+      paidAmount: 0,
+      status,
+      templateStyle:
+        resolvedTemplate?.templateStyle || resolvedTemplate?.id || undefined,
+      items: items.map(item => ({
+        id: item.id,
+        productId: item.productId,
+        description: item.description,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+      })),
+      notes,
     };
+
+    if (isTaxOverridden) {
+      if (hasOverrideRate) {
+        payload.taxRateUsed = effectiveTaxRate;
+      }
+      if (hasOverrideAmount) {
+        payload.taxAmount = tax;
+      }
+      payload.taxName = taxName;
+      payload.isTaxOverridden = true;
+    }
+
+    if (isRecurring) {
+      payload.recurring = {
+        isRecurring: true,
+        frequency: recurringFrequency,
+        interval: 1,
+        startDate: issueDate.toISOString(),
+        nextInvoiceDate: issueDate.toISOString(),
+      };
+    }
+
+    return payload;
   };
 
   const submitInvoice = async (status: Invoice['status'], description: string) => {
@@ -119,7 +194,25 @@ export default function CreateInvoiceScreen() {
       });
       router.back();
     } catch (error) {
-      Alert.alert('Error', 'Failed to create invoice');
+      const errorMessage =
+        typeof error === 'string' ? error : (error as Error)?.message || 'Failed to create invoice';
+      const normalized = String(errorMessage || '').toLowerCase();
+      const isUpgradeError =
+        normalized.includes('subscription required') || normalized.includes('invoice limit') || normalized.includes('upgrade');
+
+      if (isUpgradeError) {
+        showMessage({
+          message: 'Invoice limit reached',
+          description: errorMessage,
+          type: 'danger',
+          icon: 'danger',
+        });
+        setUpgradeMessage(errorMessage);
+        setShowUpgradeModal(true);
+        return;
+      }
+
+      Alert.alert('Error', errorMessage);
     }
   };
 
@@ -157,6 +250,14 @@ export default function CreateInvoiceScreen() {
       refreshTemplates();
     }
   }, [templates.length, refreshTemplates]);
+
+  useEffect(() => {
+    if (!taxEnabled || !allowManualOverride) {
+      setUseTaxOverride(false);
+      setTaxRateOverride('');
+      setTaxAmountOverride('');
+    }
+  }, [taxEnabled, allowManualOverride]);
 
   useEffect(() => {
     if (!productId) return;
@@ -244,7 +345,26 @@ export default function CreateInvoiceScreen() {
     return template?.previewColor || colors.primary500;
   };
 
-  const availableTemplates = useMemo(() => templates, [templates]);
+  const availableTemplates = useMemo(
+    () => templates.filter((template) => template.hasAccess ?? !template.isPremium),
+    [templates]
+  );
+
+  useEffect(() => {
+    if (!availableTemplates.length) return;
+    const selectedTemplateId = selectedInvoiceTemplate?.id;
+    if (selectedTemplateId && availableTemplates.some((template) => template.id === selectedTemplateId)) {
+      return;
+    }
+
+    setInvoiceTemplate(availableTemplates[0].id).catch((error) => {
+      console.error('Unable to set default available invoice template:', error);
+    });
+  }, [availableTemplates, selectedInvoiceTemplate?.id, setInvoiceTemplate]);
+
+  if (!canAccess) {
+    return null;
+  }
 
   const handleTemplateSelect = async (template: Template) => {
     if (template.isPremium && !template.hasAccess) {
@@ -661,14 +781,16 @@ export default function CreateInvoiceScreen() {
                 ${subtotal.toFixed(2)}
               </Text>
             </View>
-            <View style={styles.summaryRow}>
-              <Text style={[styles.summaryLabel, { color: colors.text, fontSize: isSmallScreen ? 14 : 16 }]}>
-                Tax (8.5%)
-              </Text>
-              <Text style={[styles.summaryValue, { color: colors.text, fontSize: isSmallScreen ? 14 : 16 }]}>
-                ${tax.toFixed(2)}
-              </Text>
-            </View>
+            {taxEnabled && (
+              <View style={styles.summaryRow}>
+                <Text style={[styles.summaryLabel, { color: colors.text, fontSize: isSmallScreen ? 14 : 16 }]}>
+                  {taxSummaryLabel}
+                </Text>
+                <Text style={[styles.summaryValue, { color: colors.text, fontSize: isSmallScreen ? 14 : 16 }]}>
+                  ${tax.toFixed(2)}
+                </Text>
+              </View>
+            )}
             <View style={[styles.totalRow, { borderTopColor: colors.border }]}>
               <Text style={[styles.totalLabel, { color: colors.text, fontSize: isSmallScreen ? 16 : 18 }]}>
                 Total
@@ -677,6 +799,141 @@ export default function CreateInvoiceScreen() {
                 ${total.toFixed(2)}
               </Text>
             </View>
+          </View>
+
+          {taxEnabled && (
+            <View style={[styles.section, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>Tax Settings</Text>
+              <View style={styles.taxSummaryBlock}>
+                <Text style={[styles.taxSummaryText, { color: colors.text }]}>
+                  <Text style={styles.taxSummaryLabel}>Tax Name:</Text> {taxName}
+                </Text>
+                <Text style={[styles.taxSummaryText, { color: colors.text }]}>
+                  <Text style={styles.taxSummaryLabel}>Default Rate:</Text> {baseTaxRate}%
+                </Text>
+              </View>
+
+              {allowManualOverride ? (
+                <>
+                  <View style={styles.toggleRow}>
+                    <View style={styles.toggleTextGroup}>
+                      <Text style={[styles.toggleTitle, { color: colors.text }]}>
+                        Override tax for this invoice
+                      </Text>
+                      <Text style={[styles.toggleDescription, { color: colors.textTertiary }]}>
+                        Set custom rate or fixed amount for this invoice only.
+                      </Text>
+                    </View>
+                    <Switch
+                      value={useTaxOverride}
+                      onValueChange={setUseTaxOverride}
+                      trackColor={{ false: colors.border, true: colors.primary500 }}
+                      thumbColor={colors.background}
+                    />
+                  </View>
+
+                  {useTaxOverride && (
+                    <View style={styles.overrideSection}>
+                      <View style={styles.formGroup}>
+                        <Text style={[styles.label, { color: colors.text }]}>Override Rate (%)</Text>
+                        <TextInput
+                          style={[
+                            styles.input,
+                            {
+                              backgroundColor: colors.background,
+                              borderColor: colors.border,
+                              color: colors.text,
+                            },
+                          ]}
+                          value={taxRateOverride}
+                          onChangeText={setTaxRateOverride}
+                          placeholder={`${baseTaxRate}`}
+                          placeholderTextColor={colors.textTertiary}
+                          keyboardType="decimal-pad"
+                        />
+                      </View>
+                      <View style={styles.formGroup}>
+                        <Text style={[styles.label, { color: colors.text }]}>Override Amount</Text>
+                        <TextInput
+                          style={[
+                            styles.input,
+                            {
+                              backgroundColor: colors.background,
+                              borderColor: colors.border,
+                              color: colors.text,
+                            },
+                          ]}
+                          value={taxAmountOverride}
+                          onChangeText={setTaxAmountOverride}
+                          placeholder={`${tax.toFixed(2)}`}
+                          placeholderTextColor={colors.textTertiary}
+                          keyboardType="decimal-pad"
+                        />
+                      </View>
+                      <Text style={[styles.overrideHint, { color: colors.textTertiary }]}>
+                        If override amount is set, it takes priority over override rate.
+                      </Text>
+                    </View>
+                  )}
+                </>
+              ) : (
+                <Text style={[styles.overrideHint, { color: colors.textTertiary }]}>
+                  Manual tax overrides are disabled by your administrator.
+                </Text>
+              )}
+            </View>
+          )}
+
+          <View style={[styles.section, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Recurring Invoice</Text>
+            <View style={styles.toggleRow}>
+              <View style={styles.toggleTextGroup}>
+                <Text style={[styles.toggleTitle, { color: colors.text }]}>Set as Recurring Invoice</Text>
+                <Text style={[styles.toggleDescription, { color: colors.textTertiary }]}>
+                  Automatically generate invoices on schedule.
+                </Text>
+              </View>
+              <Switch
+                value={isRecurring}
+                onValueChange={setIsRecurring}
+                trackColor={{ false: colors.border, true: colors.primary500 }}
+                thumbColor={colors.background}
+              />
+            </View>
+            {isRecurring && (
+              <>
+                <View style={styles.frequencyList}>
+                  {RECURRING_FREQUENCY_OPTIONS.map((option) => {
+                    const isSelected = recurringFrequency === option.value;
+                    return (
+                      <TouchableOpacity
+                        key={option.value}
+                        style={[
+                          styles.frequencyOption,
+                          {
+                            backgroundColor: isSelected ? colors.primary500 : colors.background,
+                            borderColor: isSelected ? colors.primary500 : colors.border,
+                          },
+                        ]}
+                        onPress={() => setRecurringFrequency(option.value)}
+                      >
+                        <Text
+                          style={[
+                            styles.frequencyOptionText,
+                            { color: isSelected ? 'white' : colors.text },
+                          ]}
+                        >
+                          {option.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+                <Text style={[styles.recurringSummaryText, { color: colors.textTertiary }]}>
+                  Will repeat {recurringFrequency} starting {formatDate(issueDate)}.
+                </Text>
+              </>
+            )}
           </View>
 
           {/* Additional Options */}
@@ -705,14 +962,25 @@ export default function CreateInvoiceScreen() {
 
           {/* Action Buttons */}
           <View style={styles.actionButtons}>
-            <TouchableOpacity 
-              style={[styles.draftButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
-              onPress={handleSaveDraft}
-            >
-              <Text style={[styles.draftButtonText, { color: colors.text, fontSize: isSmallScreen ? 14 : 16 }]}>
-                Save as Draft
-              </Text>
-            </TouchableOpacity>
+            <View style={styles.secondaryActionRow}>
+              <TouchableOpacity 
+                style={[styles.draftButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
+                onPress={handleSaveDraft}
+              >
+                <Text style={[styles.draftButtonText, { color: colors.text, fontSize: isSmallScreen ? 14 : 16 }]}>
+                  Save as Draft
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.previewButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
+                onPress={() => setShowInvoicePreview(true)}
+              >
+                <Ionicons name="eye-outline" size={isSmallScreen ? 18 : 20} color={colors.primary500} />
+                <Text style={[styles.previewButtonText, { color: colors.primary500, fontSize: isSmallScreen ? 14 : 16 }]}>
+                  Preview
+                </Text>
+              </TouchableOpacity>
+            </View>
             <TouchableOpacity 
               style={[styles.createButton, { backgroundColor: colors.primary500 }]}
               onPress={handleSaveInvoice}
@@ -748,6 +1016,119 @@ export default function CreateInvoiceScreen() {
           }}
         />
       )}
+
+      <Modal
+        visible={showInvoicePreview}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowInvoicePreview(false)}
+      >
+        <View style={[styles.modalOverlay, { backgroundColor: colors.overlay }]}>
+          <View style={[styles.previewModalContent, { backgroundColor: colors.surface }]}>
+            <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>Invoice Preview</Text>
+              <TouchableOpacity
+                onPress={() => setShowInvoicePreview(false)}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Ionicons name="close" size={isSmallScreen ? 22 : 24} color={colors.text} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={styles.previewScroll} contentContainerStyle={styles.previewScrollContent}>
+              <View style={[styles.previewSection, { backgroundColor: colors.background, borderColor: colors.border }]}>
+                <Text style={[styles.previewTitle, { color: colors.text }]}>Invoice Details</Text>
+                <Text style={[styles.previewMetaText, { color: colors.text }]}>Number: {invoiceNumber}</Text>
+                <Text style={[styles.previewMetaText, { color: colors.text }]}>Issue Date: {formatDate(issueDate)}</Text>
+                <Text style={[styles.previewMetaText, { color: colors.text }]}>Due Date: {formatDate(dueDate)}</Text>
+                <Text style={[styles.previewMetaText, { color: colors.text }]}>
+                  Template: {selectedInvoiceTemplate?.name || 'Standard'}
+                </Text>
+                {isRecurring && (
+                  <Text style={[styles.previewMetaText, { color: colors.text }]}>
+                    Recurring: {recurringFrequency}
+                  </Text>
+                )}
+              </View>
+
+              <View style={[styles.previewSection, { backgroundColor: colors.background, borderColor: colors.border }]}>
+                <Text style={[styles.previewTitle, { color: colors.text }]}>Customer</Text>
+                <Text style={[styles.previewMetaText, { color: colors.text }]}>
+                  {customer || 'No customer selected'}
+                </Text>
+                {!!customerEmail && (
+                  <Text style={[styles.previewMetaText, { color: colors.textTertiary }]}>{customerEmail}</Text>
+                )}
+                {!!customerPhone && (
+                  <Text style={[styles.previewMetaText, { color: colors.textTertiary }]}>{customerPhone}</Text>
+                )}
+              </View>
+
+              <View style={[styles.previewSection, { backgroundColor: colors.background, borderColor: colors.border }]}>
+                <Text style={[styles.previewTitle, { color: colors.text }]}>Items</Text>
+                {items.map((item, index) => (
+                  <View key={item.id} style={[styles.previewItemRow, { borderBottomColor: colors.border }]}>
+                    <View style={styles.previewItemMain}>
+                      <Text style={[styles.previewItemTitle, { color: colors.text }]}>
+                        {item.description || `Item ${index + 1}`}
+                      </Text>
+                      <Text style={[styles.previewItemMeta, { color: colors.textTertiary }]}>
+                        {item.quantity} x ${item.unitPrice.toFixed(2)}
+                      </Text>
+                    </View>
+                    <Text style={[styles.previewItemAmount, { color: colors.text }]}>
+                      ${(item.quantity * item.unitPrice).toFixed(2)}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+
+              <View style={[styles.previewSection, { backgroundColor: colors.background, borderColor: colors.border }]}>
+                <Text style={[styles.previewTitle, { color: colors.text }]}>Totals</Text>
+                <View style={styles.previewTotalRow}>
+                  <Text style={[styles.previewMetaText, { color: colors.text }]}>Subtotal</Text>
+                  <Text style={[styles.previewMetaText, { color: colors.text }]}>${subtotal.toFixed(2)}</Text>
+                </View>
+                {taxEnabled && (
+                  <View style={styles.previewTotalRow}>
+                    <Text style={[styles.previewMetaText, { color: colors.text }]}>{taxSummaryLabel}</Text>
+                    <Text style={[styles.previewMetaText, { color: colors.text }]}>${tax.toFixed(2)}</Text>
+                  </View>
+                )}
+                <View style={[styles.previewTotalRow, styles.previewTotalFinal, { borderTopColor: colors.border }]}>
+                  <Text style={[styles.previewTotalLabel, { color: colors.text }]}>Total</Text>
+                  <Text style={[styles.previewTotalLabel, { color: colors.text }]}>${total.toFixed(2)}</Text>
+                </View>
+              </View>
+
+              {!!notes && (
+                <View style={[styles.previewSection, { backgroundColor: colors.background, borderColor: colors.border }]}>
+                  <Text style={[styles.previewTitle, { color: colors.text }]}>Notes</Text>
+                  <Text style={[styles.previewMetaText, { color: colors.text }]}>{notes}</Text>
+                </View>
+              )}
+            </ScrollView>
+
+            <View style={[styles.previewActions, { borderTopColor: colors.border }]}>
+              <TouchableOpacity
+                style={[styles.previewSecondaryAction, { borderColor: colors.border }]}
+                onPress={() => setShowInvoicePreview(false)}
+              >
+                <Text style={[styles.previewSecondaryActionText, { color: colors.text }]}>Back to Edit</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.previewPrimaryAction, { backgroundColor: colors.primary500 }]}
+                onPress={async () => {
+                  setShowInvoicePreview(false);
+                  await handleSaveInvoice();
+                }}
+              >
+                <Text style={styles.previewPrimaryActionText}>Create Invoice</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* Product Selection Modal */}
       <Modal
@@ -862,6 +1243,44 @@ export default function CreateInvoiceScreen() {
               }
               contentContainerStyle={styles.flatListContent}
             />
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showUpgradeModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowUpgradeModal(false)}
+      >
+        <View style={[styles.upgradeModalOverlay, { backgroundColor: colors.overlay }]}>
+          <View style={[styles.upgradeModalCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Text style={[styles.upgradeModalEyebrow, { color: colors.primary500 }]}>
+              Upgrade Required
+            </Text>
+            <Text style={[styles.upgradeModalTitle, { color: colors.text }]}>
+              Invoice limit reached
+            </Text>
+            <Text style={[styles.upgradeModalMessage, { color: colors.textSecondary }]}>
+              {upgradeMessage || 'Upgrade to keep creating invoices.'}
+            </Text>
+            <View style={styles.upgradeModalActions}>
+              <TouchableOpacity
+                style={[styles.upgradePrimaryButton, { backgroundColor: colors.primary500 }]}
+                onPress={() => {
+                  setShowUpgradeModal(false);
+                  router.push('/(modals)/settings/billing-plan');
+                }}
+              >
+                <Text style={styles.upgradePrimaryText}>Upgrade Now</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.upgradeSecondaryButton, { borderColor: colors.border }]}
+                onPress={() => setShowUpgradeModal(false)}
+              >
+                <Text style={[styles.upgradeSecondaryText, { color: colors.text }]}>Not Now</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -1164,13 +1583,71 @@ const styles = StyleSheet.create({
   totalValue: {
     fontWeight: '700',
   },
+  taxSummaryBlock: {
+    gap: 6,
+  },
+  taxSummaryText: {
+    fontSize: isSmallScreen ? 13 : 14,
+  },
+  taxSummaryLabel: {
+    fontWeight: '700',
+  },
+  toggleRow: {
+    marginTop: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  toggleTextGroup: {
+    flex: 1,
+    gap: 2,
+  },
+  toggleTitle: {
+    fontSize: isSmallScreen ? 14 : 15,
+    fontWeight: '700',
+  },
+  toggleDescription: {
+    fontSize: isSmallScreen ? 12 : 13,
+  },
+  overrideSection: {
+    marginTop: 14,
+  },
+  overrideHint: {
+    fontSize: isSmallScreen ? 11 : 12,
+    lineHeight: isSmallScreen ? 16 : 18,
+    marginTop: 2,
+  },
+  frequencyList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 14,
+  },
+  frequencyOption: {
+    borderWidth: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+  },
+  frequencyOptionText: {
+    fontSize: isSmallScreen ? 12 : 13,
+    fontWeight: '600',
+  },
+  recurringSummaryText: {
+    marginTop: 10,
+    fontSize: isSmallScreen ? 12 : 13,
+  },
   notesInput: {
     textAlignVertical: 'top',
   },
   actionButtons: {
+    gap: 10,
+    marginTop: isSmallScreen ? 8 : 12,
+  },
+  secondaryActionRow: {
     flexDirection: 'row',
     gap: isSmallScreen ? 8 : 12,
-    marginTop: isSmallScreen ? 8 : 12,
   },
   draftButton: {
     flex: 1,
@@ -1182,8 +1659,20 @@ const styles = StyleSheet.create({
   draftButtonText: {
     fontWeight: '600',
   },
+  previewButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: isSmallScreen ? 14 : 16,
+    borderRadius: isSmallScreen ? 10 : 12,
+    borderWidth: 1,
+  },
+  previewButtonText: {
+    fontWeight: '600',
+  },
   createButton: {
-    flex: 2,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1202,10 +1691,157 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'flex-end',
   },
+  upgradeModalOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  upgradeModalCard: {
+    width: '100%',
+    borderRadius: 18,
+    padding: 20,
+    borderWidth: 1,
+  },
+  upgradeModalEyebrow: {
+    fontSize: isSmallScreen ? 11 : 12,
+    fontWeight: '700',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  upgradeModalTitle: {
+    fontSize: isSmallScreen ? 18 : 20,
+    fontWeight: '700',
+    marginTop: 8,
+  },
+  upgradeModalMessage: {
+    fontSize: isSmallScreen ? 13 : 14,
+    lineHeight: isSmallScreen ? 18 : 20,
+    marginTop: 10,
+  },
+  upgradeModalActions: {
+    flexDirection: isSmallScreen ? 'column' : 'row',
+    gap: 12,
+    marginTop: 18,
+  },
+  upgradePrimaryButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  upgradePrimaryText: {
+    color: 'white',
+    fontWeight: '700',
+  },
+  upgradeSecondaryButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+  },
+  upgradeSecondaryText: {
+    fontWeight: '600',
+  },
   modalContent: {
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     maxHeight: isSmallScreen ? '85%' : '90%',
+  },
+  previewModalContent: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: isSmallScreen ? '90%' : '92%',
+  },
+  previewScroll: {
+    maxHeight: isSmallScreen ? height * 0.62 : height * 0.68,
+  },
+  previewScrollContent: {
+    padding: isSmallScreen ? 14 : 16,
+    gap: 10,
+  },
+  previewSection: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: isSmallScreen ? 12 : 14,
+  },
+  previewTitle: {
+    fontSize: isSmallScreen ? 14 : 15,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  previewMetaText: {
+    fontSize: isSmallScreen ? 12 : 13,
+    lineHeight: isSmallScreen ? 18 : 19,
+  },
+  previewItemRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+  },
+  previewItemMain: {
+    flex: 1,
+    paddingRight: 8,
+  },
+  previewItemTitle: {
+    fontSize: isSmallScreen ? 13 : 14,
+    fontWeight: '600',
+  },
+  previewItemMeta: {
+    fontSize: isSmallScreen ? 11 : 12,
+    marginTop: 2,
+  },
+  previewItemAmount: {
+    fontSize: isSmallScreen ? 12 : 13,
+    fontWeight: '700',
+  },
+  previewTotalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 5,
+  },
+  previewTotalFinal: {
+    borderTopWidth: 1,
+    marginTop: 4,
+    paddingTop: 10,
+  },
+  previewTotalLabel: {
+    fontSize: isSmallScreen ? 14 : 15,
+    fontWeight: '700',
+  },
+  previewActions: {
+    flexDirection: 'row',
+    gap: 10,
+    padding: isSmallScreen ? 14 : 16,
+    borderTopWidth: 1,
+  },
+  previewSecondaryAction: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+  },
+  previewSecondaryActionText: {
+    fontWeight: '600',
+    fontSize: isSmallScreen ? 13 : 14,
+  },
+  previewPrimaryAction: {
+    flex: 1,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+  },
+  previewPrimaryActionText: {
+    color: 'white',
+    fontWeight: '700',
+    fontSize: isSmallScreen ? 13 : 14,
   },
   modalHeader: {
     flexDirection: 'row',

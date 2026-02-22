@@ -16,6 +16,9 @@ import { useData } from '@/context/DataContext';
 import { useUser } from '@/context/UserContext';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
+import { ROLE_GROUPS } from '@/utils/roleAccess';
+import { useRoleGuard } from '@/hooks/useRoleGuard';
+import { formatCurrency, resolveCurrencyCode } from '@/utils/currency';
 import {
   TIME_RANGE_OPTIONS,
   TimeRange,
@@ -25,16 +28,13 @@ import {
   createReportHTML,
 } from '@/utils/reportUtils';
 
-const formatCurrency = (value: number) =>
-  value.toLocaleString('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-
 export default function AnalyticsScreen() {
   const { colors } = useTheme();
   const { invoices, receipts, customers, refreshData, loading } = useData();
   const { user } = useUser();
+  const { canAccess } = useRoleGuard(ROLE_GROUPS.reports);
+  const currencyCode = resolveCurrencyCode(user || undefined);
+  const formatMoney = (value: number, options = {}) => formatCurrency(value, currencyCode, options);
   const [selectedRange, setSelectedRange] = useState<TimeRange>('week');
   const [isSyncing, setIsSyncing] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -143,15 +143,19 @@ export default function AnalyticsScreen() {
       .slice(0, 3);
   }, [customers]);
 
+  if (!canAccess) {
+    return null;
+  }
+
   const summaryMetrics = [
     {
       label: 'Total Revenue',
-      value: `$${formatCurrency(totalRevenue)}`,
+      value: formatMoney(totalRevenue),
       accent: colors.primary500,
     },
     {
       label: 'Outstanding Balance',
-      value: `$${formatCurrency(outstandingBalance)}`,
+      value: formatMoney(outstandingBalance),
       accent: colors.error,
     },
     {
@@ -188,6 +192,7 @@ export default function AnalyticsScreen() {
         invoiceSummary: invoiceStats,
         receiptSummary: receiptStats,
         totalRevenue,
+        currencyCode,
       });
       const { uri } = await Print.printToFileAsync({ html });
       if (await Sharing.isAvailableAsync()) {

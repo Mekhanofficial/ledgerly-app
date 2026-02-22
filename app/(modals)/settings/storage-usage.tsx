@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { useTheme } from '@/context/ThemeContext';
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import * as FileSystem from 'expo-file-system';
 
 interface StorageItem {
@@ -138,7 +139,7 @@ export default function StorageUsageScreen() {
       'Upgrade your storage plan to get more space:\n\n• 10GB - $2.99/month\n• 25GB - $4.99/month\n• 100GB - $9.99/month',
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'View Plans', onPress: () => {} },
+        { text: 'View Plans', onPress: () => router.push('/(modals)/settings/billing-plan') },
       ]
     );
   };

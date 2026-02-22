@@ -9,7 +9,7 @@ import React, {
   useMemo,
   useRef,
 } from 'react';
-import { Alert } from 'react-native';
+import { Alert, Linking } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system';
 import { apiGet, apiPost, apiPut, apiDelete, API_BASE_URL } from '@/services/apiClient';
@@ -20,7 +20,9 @@ import {
   INVOICE_TEMPLATE_STYLE_MAP_KEY,
   RECEIPT_TEMPLATE_STYLE_MAP_KEY,
 } from '@/services/storageKeys';
-import { getBuiltInTemplates, mergeTemplates, purchaseTemplateLocal } from '@/utils/templateCatalog';
+import { getBuiltInTemplates, mergeTemplates } from '@/utils/templateCatalog';
+import { initializeTemplatePayment } from '@/services/billingService';
+import { formatCurrency, resolveCurrencyCode } from '@/utils/currency';
 
 export interface Category {
   id: string;
@@ -87,6 +89,18 @@ export interface InvoiceItem {
   unitPrice: number;
 }
 
+export interface InvoiceRecurring {
+  isRecurring: boolean;
+  status?: 'active' | 'paused' | 'completed';
+  frequency?: 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly';
+  interval?: number;
+  startDate?: string;
+  endDate?: string;
+  nextInvoiceDate?: string;
+  totalCycles?: number;
+  completedCycles?: number;
+}
+
 export interface Invoice {
   id: string;
   number: string;
@@ -97,10 +111,16 @@ export interface Invoice {
   issueDate: string;
   dueDate: string;
   amount: number;
+  subtotal?: number;
+  taxAmount?: number;
+  taxRateUsed?: number;
+  taxName?: string;
+  isTaxOverridden?: boolean;
   paidAmount: number;
   status: 'draft' | 'sent' | 'pending' | 'paid' | 'overdue' | 'cancelled';
   items: InvoiceItem[];
   notes: string;
+  recurring?: InvoiceRecurring;
   templateStyle?: string;
   inventoryAdjusted?: boolean;
   createdAt: string;
@@ -125,6 +145,10 @@ export interface Receipt {
   amount: number;
   subtotal: number;
   tax: number;
+  taxName?: string;
+  taxRateUsed?: number;
+  taxAmount?: number;
+  isTaxOverridden?: boolean;
   discount: number;
   paymentMethod: 'cash' | 'card' | 'transfer' | 'mobile';
   templateStyle?: string;
@@ -133,6 +157,13 @@ export interface Receipt {
   notes: string;
   createdAt: string;
   updatedAt?: string;
+}
+
+export interface TaxSettings {
+  taxEnabled: boolean;
+  taxName: string;
+  taxRate: number;
+  allowManualOverride: boolean;
 }
 
 export interface DashboardStats {
@@ -264,6 +295,7 @@ interface DataContextType {
   templates: Template[];
   selectedInvoiceTemplate: Template | null;
   selectedReceiptTemplate: Template | null;
+  taxSettings: TaxSettings;
 
   markNotificationAsRead: (id: string) => void;
   markAllNotificationsAsRead: () => void;
@@ -311,6 +343,7 @@ interface DataContextType {
   setInvoiceTemplate: (templateId: string) => Promise<void>;
   setReceiptTemplate: (templateId: string) => Promise<void>;
   purchaseTemplate: (templateId: string) => Promise<void>;
+  refreshTaxSettings: () => Promise<void>;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -325,6 +358,13 @@ const formatAddress = (address: any) => {
   return [address.street, address.city, address.state, address.country, address.postalCode]
     .filter(Boolean)
     .join(', ');
+};
+
+const normalizeDateString = (value?: string | Date) => {
+  if (!value) return undefined;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return undefined;
+  return date.toISOString();
 };
 
 const normalizePaymentMethod = (method?: string): Receipt['paymentMethod'] => {
@@ -412,7 +452,12 @@ const resolveMediaUrl = (path?: string) => {
 };
 
 export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
-  const { isAuthenticated } = useUser();
+  const { user, isAuthenticated } = useUser();
+  const currencyCode = resolveCurrencyCode(user || undefined);
+  const formatMoney = useCallback(
+    (value: number, options = {}) => formatCurrency(value, currencyCode, options),
+    [currencyCode]
+  );
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [inventory, setInventory] = useState<Product[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -423,6 +468,12 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   const [templates, setTemplates] = useState<Template[]>(() =>
     getBuiltInTemplates().map(mapTemplateRecord)
   );
+  const [taxSettings, setTaxSettings] = useState<TaxSettings>({
+    taxEnabled: true,
+    taxName: 'VAT',
+    taxRate: 7.5,
+    allowManualOverride: true,
+  });
   const [invoiceTemplateId, setInvoiceTemplateId] = useState<string | null>(() => {
     const builtIns = getBuiltInTemplates();
     return builtIns.find((template) => template.isDefault)?.id || builtIns[0]?.id || null;
@@ -558,6 +609,11 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
       issueDate: invoice.date || invoice.issueDate || invoice.createdAt || new Date().toISOString(),
       dueDate: invoice.dueDate || invoice.createdAt || new Date().toISOString(),
       amount: invoice.total ?? invoice.amount ?? 0,
+      subtotal: invoice.subtotal ?? 0,
+      taxAmount: invoice.taxAmount ?? invoice.tax?.amount ?? 0,
+      taxRateUsed: invoice.taxRateUsed ?? invoice.tax?.percentage ?? 0,
+      taxName: invoice.taxName || invoice.tax?.description || 'Tax',
+      isTaxOverridden: Boolean(invoice.isTaxOverridden),
       paidAmount: invoice.amountPaid ?? invoice.paidAmount ?? 0,
       status: mapInvoiceStatusFromApi(invoice.status),
       items: (invoice.items || []).map((item: any, index: number) => ({
@@ -568,6 +624,19 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
         unitPrice: item.unitPrice || 0,
       })),
       notes: invoice.notes || '',
+      recurring: invoice.recurring
+        ? {
+            isRecurring: Boolean(invoice.recurring.isRecurring),
+            status: invoice.recurring.status,
+            frequency: invoice.recurring.frequency,
+            interval: invoice.recurring.interval,
+            startDate: normalizeDateString(invoice.recurring.startDate),
+            endDate: normalizeDateString(invoice.recurring.endDate),
+            nextInvoiceDate: normalizeDateString(invoice.recurring.nextInvoiceDate),
+            totalCycles: invoice.recurring.totalCycles,
+            completedCycles: invoice.recurring.completedCycles,
+          }
+        : undefined,
       templateStyle:
         invoice.templateStyle ||
         invoice.templateId ||
@@ -591,7 +660,11 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
       time: receipt.date || receipt.time || receipt.createdAt || new Date().toISOString(),
       amount: receipt.total ?? receipt.amount ?? 0,
       subtotal: receipt.subtotal ?? 0,
-      tax: receipt.tax?.amount ?? receipt.tax ?? 0,
+      tax: receipt.taxAmount ?? receipt.tax?.amount ?? receipt.tax ?? 0,
+      taxAmount: receipt.taxAmount ?? receipt.tax?.amount ?? receipt.tax ?? 0,
+      taxRateUsed: receipt.taxRateUsed ?? receipt.tax?.percentage ?? 0,
+      taxName: receipt.taxName || receipt.tax?.description || 'Tax',
+      isTaxOverridden: Boolean(receipt.isTaxOverridden),
       discount: receipt.discount?.amount ?? receipt.discount ?? 0,
       paymentMethod: normalizePaymentMethod(receipt.paymentMethod),
       templateStyle: receipt.templateStyle || (resolvedId ? receiptTemplateStyleMap[resolvedId] : undefined),
@@ -665,35 +738,96 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     await applyTemplateSelection(localTemplates);
   }, [applyTemplateSelection, mapTemplate]);
 
+  const refreshTaxSettings = useCallback(async () => {
+    if (!isAuthenticated) return;
+    try {
+      const response: any = await apiGet('/api/v1/tax-settings');
+      const data = response?.data ?? response;
+      if (!data) return;
+      setTaxSettings({
+        taxEnabled: data.taxEnabled ?? true,
+        taxName: data.taxName || 'VAT',
+        taxRate: Number(data.taxRate) || 0,
+        allowManualOverride: data.allowManualOverride ?? true,
+      });
+    } catch (error) {
+      console.error('Failed to load tax settings:', error);
+    }
+  }, [isAuthenticated]);
+
   const refreshData = useCallback(async () => {
     if (!isAuthenticated) return;
     setLoading(true);
     try {
-      const [
-        categoriesRes,
-        suppliersRes,
-        customersRes,
-        productsRes,
-        invoicesRes,
-        receiptsRes,
-        templatesRes,
-      ] = await Promise.all([
-        apiGet('/api/v1/categories', { isActive: true, limit: 200 }),
-        apiGet('/api/v1/suppliers', { isActive: true, limit: 200 }),
-        apiGet('/api/v1/customers', { isActive: true, limit: 200 }),
-        apiGet('/api/v1/products', { isActive: true, limit: 200 }),
-        apiGet('/api/v1/invoices', { limit: 200 }),
-        apiGet('/api/v1/receipts', { limit: 200 }),
-        apiGet('/api/v1/templates'),
-      ]);
+      const unwrapList = (payload: any) => {
+        if (!payload) return [];
+        const data = payload.data ?? payload;
+        if (Array.isArray(data)) return data;
+        if (Array.isArray(data?.data)) return data.data;
+        if (Array.isArray(data?.items)) return data.items;
+        return [];
+      };
 
-      const categoriesData = (categoriesRes as any).data ?? categoriesRes ?? [];
-      const suppliersData = (suppliersRes as any).data ?? suppliersRes ?? [];
-      const customersData = (customersRes as any).data ?? customersRes ?? [];
-      const productsData = (productsRes as any).data ?? productsRes ?? [];
-      const invoicesData = (invoicesRes as any).data ?? invoicesRes ?? [];
-      const receiptsData = (receiptsRes as any).data ?? receiptsRes ?? [];
-      const templatesData = (templatesRes as any).data ?? templatesRes ?? [];
+      const fetchAllPages = async (
+        path: string,
+        params: Record<string, any> = {},
+        pageSize = 200
+      ) => {
+        const limit = params.limit ?? pageSize;
+        let page = params.page ?? 1;
+        let combined: any[] = [];
+        let resolvedPages = 1;
+
+        for (let guard = 0; guard < 200; guard += 1) {
+          const payload: any = await apiGet(path, { ...params, page, limit });
+          const data = unwrapList(payload);
+          combined = combined.concat(data);
+
+          const hasPagination = payload?.pages !== undefined || payload?.total !== undefined;
+          if (!hasPagination) {
+            return combined;
+          }
+
+          resolvedPages = payload?.pages ?? Math.ceil((payload?.total ?? combined.length) / limit);
+          if (data.length === 0 || page >= resolvedPages) {
+            return combined;
+          }
+
+          page += 1;
+        }
+
+        return combined;
+      };
+
+      const requests = [
+        { key: 'categories', call: fetchAllPages('/api/v1/categories', {}, 200) },
+        { key: 'suppliers', call: fetchAllPages('/api/v1/suppliers', {}, 200) },
+        { key: 'customers', call: fetchAllPages('/api/v1/customers', {}, 200) },
+        { key: 'products', call: fetchAllPages('/api/v1/products', {}, 200) },
+        { key: 'invoices', call: fetchAllPages('/api/v1/invoices', {}, 200) },
+        { key: 'receipts', call: fetchAllPages('/api/v1/receipts', {}, 200) },
+        { key: 'templates', call: apiGet('/api/v1/templates') },
+      ];
+
+      const results = await Promise.allSettled(requests.map((req) => req.call));
+
+      const readList = (index: number) => {
+        const result = results[index];
+        if (result?.status === 'fulfilled') {
+          return Array.isArray(result.value) ? result.value : unwrapList(result.value);
+        }
+        console.error(`Failed to load ${requests[index]?.key}:`, result?.reason);
+        return [];
+      };
+
+      const categoriesData = readList(0);
+      const suppliersData = readList(1);
+      const customersData = readList(2);
+      const productsData = readList(3);
+      const invoicesData = readList(4);
+      const receiptsData = readList(5);
+      const templatesPayload =
+        results[6]?.status === 'fulfilled' ? results[6].value : null;
 
       setCategories(categoriesData.map(mapCategory));
       setSuppliers(suppliersData.map(mapSupplier));
@@ -701,10 +835,16 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
       setInventory(productsData.map(mapProduct));
       setInvoices(invoicesData.map(mapInvoice));
       setReceipts(receiptsData.map(mapReceipt));
-      const mergedTemplates = await mergeTemplates(templatesData);
-      const mappedTemplates = mergedTemplates.map(mapTemplate);
-      setTemplates(mappedTemplates);
-      await applyTemplateSelection(mappedTemplates);
+
+      if (templatesPayload) {
+        const templatesData = unwrapList(templatesPayload);
+        const mergedTemplates = await mergeTemplates(templatesData);
+        const mappedTemplates = mergedTemplates.map(mapTemplate);
+        setTemplates(mappedTemplates);
+        await applyTemplateSelection(mappedTemplates);
+      } else {
+        await loadFallbackTemplates();
+      }
     } catch (error) {
       console.error('Failed to refresh data:', error);
       await loadFallbackTemplates();
@@ -728,8 +868,9 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   useEffect(() => {
     if (isAuthenticated) {
       refreshData();
+      refreshTaxSettings();
     }
-  }, [isAuthenticated, refreshData]);
+  }, [isAuthenticated, refreshData, refreshTaxSettings]);
 
   useEffect(() => {
     if (isAuthenticated) return;
@@ -772,101 +913,89 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   }, []);
 
   const getDashboardStats = useCallback((): DashboardStats => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const now = new Date();
+    const periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const periodEnd = new Date(now);
+    const duration = Math.max(0, periodEnd.getTime() - periodStart.getTime());
+    const previousEnd = new Date(periodStart.getTime() - 1);
+    const previousStart = new Date(previousEnd.getTime() - duration);
 
-    const oneWeekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
-    const oneMonthAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
-    const twoMonthsAgo = new Date(today.getTime() - 60 * 24 * 60 * 60 * 1000);
-
-    const getRevenueForRange = (start: Date, end: Date) => {
-      const invoiceRevenue = invoices
-        .filter((inv) => {
-          const date = new Date(inv.issueDate || inv.createdAt);
-          return inv.status === 'paid' && date >= start && date < end;
-        })
-        .reduce((sum, inv) => sum + inv.amount, 0);
-
-      const receiptRevenue = receipts
-        .filter((rec) => {
-          const date = new Date(rec.time || rec.createdAt);
-          return rec.status === 'completed' && date >= start && date < end;
-        })
-        .reduce((sum, rec) => sum + rec.amount, 0);
-
-      return invoiceRevenue + receiptRevenue;
+    const resolveInvoiceDate = (inv: Invoice) => {
+      const raw = inv.issueDate || inv.createdAt || inv.updatedAt;
+      const parsed = new Date(raw);
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
     };
 
-    const todayReceipts = receipts.filter((receipt) => {
-      const receiptDate = new Date(receipt.createdAt);
-      receiptDate.setHours(0, 0, 0, 0);
-      return receiptDate.getTime() === today.getTime() && receipt.status === 'completed';
+    const resolveReceiptDate = (rec: Receipt) => {
+      const raw = rec.time || rec.createdAt || rec.updatedAt;
+      const parsed = new Date(raw);
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    };
+
+    const isInRange = (date: Date | null, start: Date, end: Date) => {
+      if (!date) return false;
+      return date >= start && date <= end;
+    };
+
+    const paidInvoicesInRange = invoices.filter((inv) => {
+      const date = resolveInvoiceDate(inv);
+      return inv.status === 'paid' && isInRange(date, periodStart, periodEnd);
     });
+    const paidInvoiceRevenue = paidInvoicesInRange.reduce((sum, inv) => sum + inv.amount, 0);
 
-    const weeklyReceipts = receipts.filter((receipt) => {
-      const receiptDate = new Date(receipt.createdAt);
-      return receiptDate >= oneWeekAgo && receipt.status === 'completed';
-    });
+    const receiptRevenue = receipts
+      .filter((rec) => rec.status === 'completed')
+      .filter((rec) => isInRange(resolveReceiptDate(rec), periodStart, periodEnd))
+      .reduce((sum, rec) => sum + rec.amount, 0);
 
-    const monthlyReceipts = receipts.filter((receipt) => {
-      const receiptDate = new Date(receipt.createdAt);
-      return receiptDate >= oneMonthAgo && receipt.status === 'completed';
-    });
-
-    const prevMonthReceipts = receipts.filter((receipt) => {
-      const receiptDate = new Date(receipt.createdAt);
-      return receiptDate >= twoMonthsAgo && receiptDate < oneMonthAgo && receipt.status === 'completed';
-    });
-
-    const receiptsRevenue = todayReceipts.reduce((sum, receipt) => sum + receipt.amount, 0);
-    const monthlyRevenue = getRevenueForRange(oneMonthAgo, new Date());
-    const weeklyRevenue = getRevenueForRange(oneWeekAgo, new Date());
-    const prevMonthlyRevenue = getRevenueForRange(twoMonthsAgo, oneMonthAgo);
-
-    const totalPaidInvoices = invoices
+    const previousPaidRevenue = invoices
       .filter((inv) => inv.status === 'paid')
+      .filter((inv) => isInRange(resolveInvoiceDate(inv), previousStart, previousEnd))
       .reduce((sum, inv) => sum + inv.amount, 0);
+
+    const previousReceiptRevenue = receipts
+      .filter((rec) => rec.status === 'completed')
+      .filter((rec) => isInRange(resolveReceiptDate(rec), previousStart, previousEnd))
+      .reduce((sum, rec) => sum + rec.amount, 0);
+
+    const hasReceiptData = receipts.length > 0;
+    const totalRevenue = hasReceiptData ? receiptRevenue : paidInvoiceRevenue;
+    const previousRevenue = hasReceiptData ? previousReceiptRevenue : previousPaidRevenue;
+
+    const revenueChange =
+      previousRevenue > 0
+        ? `${(((totalRevenue - previousRevenue) / previousRevenue) * 100).toFixed(1)}%`
+        : totalRevenue > 0 ? '+100%' : '0%';
+
+    const currentPeriodInvoices = invoices.filter((inv) =>
+      isInRange(resolveInvoiceDate(inv), periodStart, periodEnd)
+    ).length;
+    const previousPeriodInvoices = invoices.filter((inv) =>
+      isInRange(resolveInvoiceDate(inv), previousStart, previousEnd)
+    ).length;
+
+    const invoiceChange =
+      previousPeriodInvoices > 0
+        ? `${(((currentPeriodInvoices - previousPeriodInvoices) / previousPeriodInvoices) * 100).toFixed(1)}%`
+        : currentPeriodInvoices > 0 ? '+100%' : '0%';
+
+    const currentPeriodCustomers = customers.filter((cust) => {
+      const date = new Date(cust.createdAt);
+      return isInRange(Number.isNaN(date.getTime()) ? null : date, periodStart, periodEnd);
+    }).length;
+    const previousPeriodCustomers = customers.filter((cust) => {
+      const date = new Date(cust.createdAt);
+      return isInRange(Number.isNaN(date.getTime()) ? null : date, previousStart, previousEnd);
+    }).length;
+
+    const customerChange =
+      previousPeriodCustomers > 0
+        ? `${(((currentPeriodCustomers - previousPeriodCustomers) / previousPeriodCustomers) * 100).toFixed(1)}%`
+        : currentPeriodCustomers > 0 ? '+100%' : '0%';
 
     const totalOutstanding = invoices
       .filter((inv) => inv.status === 'pending' || inv.status === 'overdue')
       .reduce((sum, inv) => sum + (inv.amount - inv.paidAmount), 0);
-
-    const totalRevenue = totalPaidInvoices + receiptsRevenue;
-
-    const revenueChange =
-      prevMonthlyRevenue > 0
-        ? `${(((monthlyRevenue - prevMonthlyRevenue) / prevMonthlyRevenue) * 100).toFixed(1)}%`
-        : '+100%';
-
-    const currentMonthInvoices = invoices.filter((inv) => {
-      const invoiceDate = new Date(inv.createdAt);
-      return invoiceDate >= oneMonthAgo;
-    }).length;
-
-    const prevMonthInvoices = invoices.filter((inv) => {
-      const invoiceDate = new Date(inv.createdAt);
-      return invoiceDate >= twoMonthsAgo && invoiceDate < oneMonthAgo;
-    }).length;
-
-    const invoiceChange =
-      prevMonthInvoices > 0
-        ? `${(((currentMonthInvoices - prevMonthInvoices) / prevMonthInvoices) * 100).toFixed(1)}%`
-        : '+100%';
-
-    const currentMonthCustomers = customers.filter((cust) => {
-      const customerDate = new Date(cust.createdAt);
-      return customerDate >= oneMonthAgo;
-    }).length;
-
-    const prevMonthCustomers = customers.filter((cust) => {
-      const customerDate = new Date(cust.createdAt);
-      return customerDate >= twoMonthsAgo && customerDate < oneMonthAgo;
-    }).length;
-
-    const customerChange =
-      prevMonthCustomers > 0
-        ? `${(((currentMonthCustomers - prevMonthCustomers) / prevMonthCustomers) * 100).toFixed(1)}%`
-        : '+100%';
 
     const averageInvoiceValue =
       invoices.length > 0
@@ -877,23 +1006,31 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     const totalPaidAmount = invoices.reduce((sum, inv) => sum + inv.paidAmount, 0);
     const paymentCollectionRate = totalInvoiceAmount > 0 ? (totalPaidAmount / totalInvoiceAmount) * 100 : 100;
 
+    const receiptsToday = receipts.filter((receipt) => {
+      const date = resolveReceiptDate(receipt);
+      if (!date) return false;
+      const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+      return receipt.status === 'completed' && date >= start && date <= end;
+    });
+
     return {
       totalRevenue,
       outstandingPayments: totalOutstanding,
       lowStockItems: inventory.filter((item) => item.status === 'low-stock' || item.status === 'out-of-stock').length,
       totalInvoices: invoices.length,
-      totalPaid: totalPaidInvoices,
+      totalPaid: hasReceiptData ? receiptRevenue : paidInvoiceRevenue,
       totalCustomers: customers.length,
       activeCustomers: customers.filter((c) => c.status === 'active').length,
       overdueInvoices: invoices.filter((inv) => inv.status === 'overdue').length,
       totalReceipts: receipts.length,
-      todayReceipts: todayReceipts.length,
-      receiptsRevenue,
-      monthlyRevenue,
-      weeklyRevenue,
-      revenueChange: monthlyRevenue > prevMonthlyRevenue ? `+${revenueChange}` : revenueChange,
-      invoiceChange: currentMonthInvoices > prevMonthInvoices ? `+${invoiceChange}` : invoiceChange,
-      customerChange: currentMonthCustomers > prevMonthCustomers ? `+${customerChange}` : customerChange,
+      todayReceipts: receiptsToday.length,
+      receiptsRevenue: receiptRevenue,
+      monthlyRevenue: totalRevenue,
+      weeklyRevenue: totalRevenue,
+      revenueChange: totalRevenue > previousRevenue ? `+${revenueChange}` : revenueChange,
+      invoiceChange: currentPeriodInvoices > previousPeriodInvoices ? `+${invoiceChange}` : invoiceChange,
+      customerChange: currentPeriodCustomers > previousPeriodCustomers ? `+${customerChange}` : customerChange,
       averageInvoiceValue,
       paymentCollectionRate,
     };
@@ -981,7 +1118,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
           id: `payment_${invoice.id}_${invoice.updatedAt || invoice.createdAt}`,
           type: 'payment',
           title: 'Payment Received',
-          message: `$${invoice.paidAmount.toFixed(2)} payment from ${invoice.customer}`,
+        message: `${formatMoney(invoice.paidAmount || 0)} payment from ${invoice.customer}`,
           time: formatNotificationTime(new Date(invoice.updatedAt || invoice.createdAt)),
           read: true,
           action: {
@@ -1072,15 +1209,21 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   const purchaseTemplate = useCallback(
     async (templateId: string) => {
       try {
-        await apiPost(`/api/v1/templates/${templateId}/purchase`, {
-          paymentMethod: 'manual',
-        });
+        const response: any = await initializeTemplatePayment({ templateId });
+        const data = response?.data ?? response ?? {};
+        const url = data?.authorizationUrl || data?.authorization_url;
+        if (url) {
+          await Linking.openURL(url);
+          Alert.alert('Complete Payment', 'Finish Paystack checkout to unlock the template.');
+        } else {
+          Alert.alert('Payment Error', 'Unable to start payment. Please try again.');
+        }
       } catch (error) {
-        await purchaseTemplateLocal(templateId, 'manual');
+        Alert.alert('Payment Error', 'Unable to start payment. Please try again.');
       }
       await refreshTemplates();
     },
-    [refreshTemplates, purchaseTemplateLocal]
+    [refreshTemplates]
   );
 
   const createCategory = useCallback(
@@ -1194,40 +1337,43 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
         throw new Error('Customer not found');
       }
 
-      const subtotal = invoiceData.items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
-      const taxAmount = subtotal * 0.085;
-      const total = subtotal + taxAmount;
-
       const items = invoiceData.items.map((item) => {
         const itemSubtotal = item.quantity * item.unitPrice;
-        const itemTax = itemSubtotal * 0.085;
         return {
           product: item.productId,
           description: item.description,
           quantity: item.quantity,
           unitPrice: item.unitPrice,
-          taxRate: 8.5,
+          taxRate: 0,
           discount: 0,
           discountType: 'fixed',
-          taxAmount: itemTax,
-          total: itemSubtotal + itemTax,
+          taxAmount: 0,
+          total: itemSubtotal,
         };
       });
 
-      const payload = {
+      const payload: any = {
         invoiceNumber: invoiceData.number,
         customer: customerId,
         date: invoiceData.issueDate,
         dueDate: invoiceData.dueDate,
         items,
-        subtotal,
-        tax: { percentage: 8.5, amount: taxAmount },
-        total,
         amountPaid: invoiceData.paidAmount ?? 0,
         status: mapInvoiceStatusToApi(invoiceData.status),
         notes: invoiceData.notes,
         templateStyle: invoiceData.templateStyle,
       };
+
+      if (invoiceData.taxRateUsed !== undefined) payload.taxRateUsed = invoiceData.taxRateUsed;
+      if (invoiceData.taxAmount !== undefined) payload.taxAmount = invoiceData.taxAmount;
+      if (invoiceData.taxName) payload.taxName = invoiceData.taxName;
+      if (invoiceData.isTaxOverridden !== undefined) payload.isTaxOverridden = invoiceData.isTaxOverridden;
+      if (invoiceData.recurring) {
+        payload.recurring = {
+          ...invoiceData.recurring,
+          isRecurring: Boolean(invoiceData.recurring.isRecurring),
+        };
+      }
 
       const response: any = await apiPost('/api/v1/invoices', payload);
       const mappedInvoice = mapInvoice(response.data || response);
@@ -1322,29 +1468,34 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
       if (updates.notes !== undefined) {
         payload.notes = updates.notes;
       }
+      if (updates.taxRateUsed !== undefined) {
+        payload.taxRateUsed = updates.taxRateUsed;
+      }
+      if (updates.taxAmount !== undefined) {
+        payload.taxAmount = updates.taxAmount;
+      }
+      if (updates.taxName !== undefined) {
+        payload.taxName = updates.taxName;
+      }
+      if (updates.isTaxOverridden !== undefined) {
+        payload.isTaxOverridden = updates.isTaxOverridden;
+      }
+      if (updates.recurring !== undefined) {
+        payload.recurring = updates.recurring;
+      }
 
       if (updates.items) {
-        const subtotal = updates.items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
-        const taxAmount = subtotal * 0.085;
-        const total = subtotal + taxAmount;
         payload.items = updates.items.map((item) => ({
           product: item.productId,
           description: item.description,
           quantity: item.quantity,
           unitPrice: item.unitPrice,
-          taxRate: 8.5,
+          taxRate: 0,
           discount: 0,
           discountType: 'fixed',
-          taxAmount: item.quantity * item.unitPrice * 0.085,
-          total: item.quantity * item.unitPrice * 1.085,
+          taxAmount: 0,
+          total: item.quantity * item.unitPrice,
         }));
-        payload.subtotal = subtotal;
-        payload.tax = { percentage: 8.5, amount: taxAmount };
-        payload.total = total;
-      }
-
-      if (updates.amount !== undefined && !updates.items) {
-        payload.total = updates.amount;
       }
 
       const response: any = await apiPut(`/api/v1/invoices/${id}`, payload);
@@ -1455,7 +1606,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
         addNotification({
           type: 'payment',
           title: 'Payment Recorded',
-          message: `$${amount.toFixed(2)} received for invoice #${invoice.number}.`,
+          message: `${formatMoney(amount || 0)} received for invoice #${invoice.number}.`,
           time: 'Just now',
           action: {
             label: 'View Invoice',
@@ -1894,6 +2045,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     templates,
     selectedInvoiceTemplate,
     selectedReceiptTemplate,
+    taxSettings,
     markNotificationAsRead,
     markAllNotificationsAsRead,
     clearNotifications,
@@ -1931,6 +2083,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     setInvoiceTemplate,
     setReceiptTemplate,
     purchaseTemplate,
+    refreshTaxSettings,
   };
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;

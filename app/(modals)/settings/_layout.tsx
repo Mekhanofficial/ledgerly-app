@@ -11,6 +11,7 @@ export default function SettingsLayout() {
 
   const allowedRoles = useMemo(() => {
     if (pathname.includes('/settings/templates')) return ROLE_GROUPS.business;
+    if (pathname.includes('/settings/integrations')) return ['admin', 'accountant', 'super_admin'];
     if (pathname.includes('/settings/team')) return ['admin', 'super_admin'];
     return ROLE_GROUPS.settings;
   }, [pathname]);
@@ -48,6 +49,13 @@ export default function SettingsLayout() {
           title: 'Payment Methods',
           presentation: 'card',
         }} 
+      />
+      <Stack.Screen
+        name="integrations"
+        options={{
+          title: 'Integrations',
+          presentation: 'card',
+        }}
       />
       <Stack.Screen 
         name="billing-plan" 

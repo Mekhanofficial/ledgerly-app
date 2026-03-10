@@ -364,6 +364,13 @@ export default function SettingsScreen() {
           showChevron: true,
         },
         {
+          icon: 'globe-outline',
+          label: 'Integrations',
+          description: 'Stripe, Paystack, messaging, accounting, and API',
+          action: () => router.push('/(modals)/settings/integrations' as any),
+          showChevron: true,
+        },
+        {
           icon: 'wallet-outline',
           label: 'Billing & Plan',
           description: 'Manage subscription and add-ons',

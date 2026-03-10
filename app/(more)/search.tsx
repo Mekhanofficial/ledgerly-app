@@ -240,7 +240,12 @@ export default function SearchScreen() {
         )}
       </View>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.filterRow}
+        contentContainerStyle={styles.filterRowContent}
+      >
         {filters.map((filter) => {
           const isActive = activeFilter === filter.key;
           return (
@@ -269,7 +274,9 @@ export default function SearchScreen() {
         })}
       </ScrollView>
 
-      <ScrollView contentContainerStyle={styles.resultsScroll}>{renderResults()}</ScrollView>
+      <ScrollView style={styles.resultsScroll} contentContainerStyle={styles.resultsContent}>
+        {renderResults()}
+      </ScrollView>
     </View>
   );
 }
@@ -303,15 +310,26 @@ const styles = StyleSheet.create({
   filterRow: {
     marginTop: 14,
     marginBottom: 6,
+    flexGrow: 0,
+  },
+  filterRowContent: {
+    alignItems: 'center',
+    paddingRight: 6,
   },
   filterChip: {
+    alignSelf: 'flex-start',
     borderRadius: 999,
     borderWidth: 1,
     paddingHorizontal: 14,
     paddingVertical: 8,
+    minHeight: 38,
+    justifyContent: 'center',
     marginRight: 8,
   },
   resultsScroll: {
+    flex: 1,
+  },
+  resultsContent: {
     paddingVertical: 12,
     paddingBottom: 24,
   },

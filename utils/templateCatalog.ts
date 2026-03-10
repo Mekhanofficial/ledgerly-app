@@ -2,6 +2,26 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const TEMPLATE_PURCHASES_KEY = 'template_purchases';
 const PREMIUM_ACCESS_KEY = 'premium_templates_access';
+const TEMPLATE_TIER_PRICING: Record<string, number> = {
+  STANDARD: 0,
+  PREMIUM: 3500,
+  ELITE: 8500,
+};
+const TEMPLATE_CATEGORY_BY_ID: Record<string, 'STANDARD' | 'PREMIUM' | 'ELITE'> = {
+  standard: 'STANDARD',
+  minimal: 'STANDARD',
+  retail: 'STANDARD',
+  medical: 'STANDARD',
+  legal: 'STANDARD',
+  luxury: 'ELITE',
+  corporatePro: 'ELITE',
+  creativeStudio: 'ELITE',
+  glassmorphic: 'ELITE',
+  neoBrutalist: 'ELITE',
+  holographic: 'ELITE',
+  minimalistDark: 'ELITE',
+  organicEco: 'ELITE',
+};
 
 export const basicTemplates = {
   standard: {
@@ -990,10 +1010,13 @@ export const allTemplates = {
   ...industryTemplates,
 };
 
-export const getBuiltInTemplates = () => Object.values(allTemplates);
+export const getBuiltInTemplates = () =>
+  Object.values(allTemplates).map((template) => normalizeTemplateShape(template));
 
 export const getTemplateById = (templateId: string) => {
-  return (allTemplates as Record<string, any>)[templateId] || basicTemplates.standard;
+  return normalizeTemplateShape(
+    (allTemplates as Record<string, any>)[templateId] || basicTemplates.standard
+  );
 };
 
 const normalizeCategory = (category?: string) => {
@@ -1004,14 +1027,19 @@ const normalizeCategory = (category?: string) => {
   return 'STANDARD';
 };
 
-const normalizeTemplateShape = (template: any) => {
-  const category = normalizeCategory(template?.category);
+function normalizeTemplateShape(template: any) {
+  const id = String(template?.id || template?._id || template?.templateId || '').trim();
+  const category = normalizeCategory(TEMPLATE_CATEGORY_BY_ID[id] || template?.category);
+  const tierPrice = TEMPLATE_TIER_PRICING[category] ?? 0;
+  const price = category === 'CUSTOM' ? Number(template?.price || 0) : tierPrice;
   return {
     ...template,
+    id: template?.id || template?._id || template?.templateId || id,
     category,
-    isPremium: typeof template?.isPremium === 'boolean' ? template.isPremium : category !== 'STANDARD',
+    price,
+    isPremium: category !== 'STANDARD',
   };
-};
+}
 
 const loadLocalAccess = async () => {
   const [premiumAccessRaw, purchasesRaw] = await AsyncStorage.multiGet([
@@ -1032,7 +1060,8 @@ const loadLocalAccess = async () => {
 export const hasTemplateAccessLocal = async (templateId: string) => {
   const template = (allTemplates as Record<string, any>)[templateId];
   if (!template) return false;
-  if (!template.isPremium) return true;
+  const normalizedTemplate = normalizeTemplateShape(template);
+  if (!normalizedTemplate.isPremium) return true;
   const accessible = await loadLocalAccess();
   return accessible.has(templateId);
 };
@@ -1042,11 +1071,12 @@ export const purchaseTemplateLocal = async (templateId: string, paymentMethod = 
   if (!template) {
     throw new Error('Template not found');
   }
+  const normalizedTemplate = normalizeTemplateShape(template);
 
   const purchaseData = {
     templateId,
-    templateName: template.name,
-    price: template.price || 0,
+    templateName: normalizedTemplate.name,
+    price: normalizedTemplate.price || 0,
     paymentMethod,
     purchasedAt: new Date().toISOString(),
     transactionId: `txn_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,

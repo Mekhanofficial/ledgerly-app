@@ -25,6 +25,26 @@ const toGradientColor = (value?: number[], fallback?: string) => {
   return `rgb(${value[0]}, ${value[1]}, ${value[2]})`;
 };
 
+const formatNgn = (amount?: number) => {
+  const value = Number(amount || 0);
+  try {
+    return new Intl.NumberFormat('en-NG', {
+      style: 'currency',
+      currency: 'NGN',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(value);
+  } catch {
+    return `NGN ${value.toLocaleString('en-NG')}`;
+  }
+};
+
+const getIncludedPlanLabel = (category?: string) => {
+  if (category === 'ELITE') return 'Included in Enterprise plan';
+  if (category === 'PREMIUM') return 'Included in Professional plan';
+  return '';
+};
+
 export default function TemplatesScreen() {
   const { colors } = useTheme();
   const {
@@ -92,9 +112,10 @@ export default function TemplatesScreen() {
 
   const handleSelect = async (template: Template) => {
     if (template.isPremium && !template.hasAccess) {
+      const includedPlan = getIncludedPlanLabel(template.category);
       Alert.alert(
-        'Premium Template',
-        `${template.name} is a premium template. Unlock it to use.`,
+        `${template.category === 'ELITE' ? 'Elite' : 'Premium'} Template`,
+        `${template.name} is locked. ${includedPlan || 'Upgrade your plan'} or unlock for ${formatNgn(template.price ?? 0)}.`,
         [
           { text: 'Cancel', style: 'cancel' },
           {
@@ -238,6 +259,7 @@ export default function TemplatesScreen() {
             const isSelected = selectedTemplateId === template.id;
             const isLocked = template.isPremium && !template.hasAccess;
             const isLoading = loadingTemplateId === template.id;
+            const includedPlanLabel = getIncludedPlanLabel(template.category);
 
             return (
               <TouchableOpacity
@@ -273,6 +295,11 @@ export default function TemplatesScreen() {
                   <Text style={[styles.cardDescription, { color: colors.textTertiary }]}>
                     {template.description || 'Classic layout for invoices and receipts.'}
                   </Text>
+                  {!!includedPlanLabel && (
+                    <Text style={[styles.includedPlanText, { color: colors.textTertiary }]}>
+                      {includedPlanLabel}
+                    </Text>
+                  )}
                   <View style={styles.badgeRow}>
                     {template.isDefault &&
                       renderBadge('Default', colors.primary100, colors.primary500)}
@@ -315,7 +342,11 @@ export default function TemplatesScreen() {
                               { color: isLocked ? colors.error : 'white' },
                             ]}
                           >
-                            {isLocked ? `Unlock ($${template.price ?? 0})` : isSelected ? 'Selected' : 'Use Template'}
+                            {isLocked
+                              ? `Unlock for ${formatNgn(template.price ?? 0)}`
+                              : isSelected
+                              ? 'Selected'
+                              : 'Use Template'}
                           </Text>
                         </>
                       )}
@@ -352,7 +383,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   tierTabsScroll: {
-    marginBottom: 10,
+    marginBottom: 2,
   },
   tierTabsContent: {
     paddingHorizontal: 16,
@@ -437,6 +468,10 @@ const styles = StyleSheet.create({
   cardDescription: {
     fontSize: 13,
     lineHeight: 18,
+  },
+  includedPlanText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
   badgeRow: {
     flexDirection: 'row',

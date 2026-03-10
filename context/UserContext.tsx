@@ -1,7 +1,7 @@
 // contexts/UserContext.tsx
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
 import * as authService from '../services/authServices';
-import { User, RegisterPayload } from '../services/authServices';
+import { User, RegisterPayload, AuthResponse } from '../services/authServices';
 import { showMessage } from 'react-native-flash-message';
 
 // Create context
@@ -11,7 +11,9 @@ interface UserContextType {
   isAuthenticated: boolean;
   loginUser: (email: string, password: string) => Promise<User | null>;
   logoutUser: () => Promise<void>;
-  registerUser: (userData: RegisterPayload) => Promise<User | null>;
+  registerUser: (userData: RegisterPayload) => Promise<AuthResponse>;
+  verifyEmailOtp: (email: string, otp: string) => Promise<AuthResponse>;
+  resendEmailOtp: (email: string) => Promise<AuthResponse>;
   updateProfile: (updates: Partial<User>) => Promise<User | null>;
   refreshUser: () => Promise<User | null>;
   isAdmin: () => Promise<boolean>;
@@ -83,7 +85,7 @@ export const UserProvider: React.FC<UserProviderProps> = ({ children }) => {
   }, []);
 
   // Register function using authService (NO auto-login)
-  const registerUser = useCallback(async (userData: RegisterPayload): Promise<User | null> => {
+  const registerUser = useCallback(async (userData: RegisterPayload): Promise<AuthResponse> => {
     setLoading(true);
 
     const result = await authService.registerUser(userData);
@@ -96,13 +98,44 @@ export const UserProvider: React.FC<UserProviderProps> = ({ children }) => {
 
     // DO NOT auto login - just return success
     setLoading(false);
+    const otpSent = result.otpSent !== false;
+    showMessage({
+      message: otpSent ? 'Success' : 'Warning',
+      description: result.message,
+      type: otpSent ? 'success' : 'warning',
+      icon: otpSent ? 'success' : 'warning',
+    });
+    return result;
+  }, []);
+
+  const verifyEmailOtp = useCallback(async (email: string, otp: string): Promise<AuthResponse> => {
+    const result = await authService.verifyEmailOtp(email, otp);
+    if (!result.success) {
+      throw new Error(result.message);
+    }
+
     showMessage({
       message: 'Success',
-      description: 'Account created successfully! Please login.',
+      description: result.message,
       type: 'success',
       icon: 'success',
     });
-    return result.user!;
+    return result;
+  }, []);
+
+  const resendEmailOtp = useCallback(async (email: string): Promise<AuthResponse> => {
+    const result = await authService.resendEmailOtp(email);
+    if (!result.success) {
+      throw new Error(result.message);
+    }
+
+    showMessage({
+      message: 'Success',
+      description: result.message,
+      type: 'success',
+      icon: 'success',
+    });
+    return result;
   }, []);
 
   // Logout function using authService
@@ -173,6 +206,8 @@ export const UserProvider: React.FC<UserProviderProps> = ({ children }) => {
     loginUser,
     logoutUser,
     registerUser,
+    verifyEmailOtp,
+    resendEmailOtp,
     updateProfile,
     refreshUser,
     isAdmin,

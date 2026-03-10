@@ -66,7 +66,7 @@ export default function ForgotPasswordScreen() {
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>      
       <View style={styles.background} pointerEvents="none">
         <LinearGradient
-          colors={[colors.primary50, colors.background, colors.primary100]}
+          colors={[colors.pageGradientStart, colors.background, colors.pageGradientEnd]}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={StyleSheet.absoluteFill}
@@ -75,7 +75,7 @@ export default function ForgotPasswordScreen() {
           style={[
             styles.glow,
             {
-              backgroundColor: colors.primary500 + '22',
+              backgroundColor: colors.glowCyan,
               top: -50,
               right: -40,
             },
@@ -85,7 +85,7 @@ export default function ForgotPasswordScreen() {
           style={[
             styles.glowSmall,
             {
-              backgroundColor: colors.info + '18',
+              backgroundColor: colors.glowBlue,
               bottom: 80,
               left: -30,
             },
@@ -165,7 +165,7 @@ export default function ForgotPasswordScreen() {
                   disabled={isLoading}
                 >
                   <LinearGradient
-                    colors={[colors.primary500, colors.primary600]}
+                    colors={[colors.brandGradientStart, colors.brandGradientEnd]}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 0 }}
                     style={styles.primaryButtonGradient}
@@ -182,7 +182,7 @@ export default function ForgotPasswordScreen() {
 
             <TouchableOpacity
               style={styles.backLink}
-              onPress={() => router.push('/(auth)/login')}
+              onPress={() => router.push('/login')}
               disabled={isLoading}
             >
               <Text style={[styles.backLinkText, { color: colors.primary500 }]}>Back to login</Text>

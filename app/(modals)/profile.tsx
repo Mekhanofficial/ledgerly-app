@@ -31,6 +31,8 @@ export default function ProfileScreen() {
     phoneNumber: user?.phoneNumber || '',
     businessName: user?.businessName || '',
     country: user?.country || '',
+    timezone: user?.timezone || '',
+    currencyCode: user?.currencyCode || '',
   });
   const [uploadingImage, setUploadingImage] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(user?.profileImage || null);
@@ -41,7 +43,7 @@ export default function ProfileScreen() {
     } catch (error) {
       console.error('Logout error:', error);
     } finally {
-      router.replace('/(auth)/login');
+      router.replace('/login');
     }
   };
 
@@ -108,6 +110,8 @@ export default function ProfileScreen() {
         phoneNumber: user?.phoneNumber || '',
         businessName: user?.businessName || '',
         country: user?.country || '',
+        timezone: user?.timezone || '',
+        currencyCode: user?.currencyCode || '',
       });
       setSelectedImage(user?.profileImage || null);
     }
@@ -270,6 +274,37 @@ export default function ProfileScreen() {
               />
             </View>
 
+            <View style={styles.inputGroup}>
+              <Text style={[styles.label, { color: colors.textSecondary }]}>Timezone</Text>
+              <TextInput
+                style={[styles.input, {
+                  backgroundColor: colors.input,
+                  color: colors.text,
+                  borderColor: colors.border
+                }]}
+                value={editedData.timezone}
+                onChangeText={(text) => setEditedData(prev => ({ ...prev, timezone: text }))}
+                placeholder="Enter timezone"
+                placeholderTextColor={colors.textTertiary}
+              />
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={[styles.label, { color: colors.textSecondary }]}>Currency</Text>
+              <TextInput
+                style={[styles.input, {
+                  backgroundColor: colors.input,
+                  color: colors.text,
+                  borderColor: colors.border
+                }]}
+                value={editedData.currencyCode}
+                onChangeText={(text) => setEditedData(prev => ({ ...prev, currencyCode: text.toUpperCase() }))}
+                placeholder="Enter currency code (e.g. USD)"
+                placeholderTextColor={colors.textTertiary}
+                autoCapitalize="characters"
+              />
+            </View>
+
             <TouchableOpacity 
               style={[styles.saveButton, { backgroundColor: colors.primary500 }]}
               onPress={handleSaveChanges}
@@ -296,7 +331,7 @@ export default function ProfileScreen() {
 
             {/* Contact Info */}
             <View style={[styles.section, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <Text style={[styles.sectionTitle, { color: colors.text }]}>Contact Information</Text>
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>Company Information</Text>
               
               <View style={styles.infoRow}>
                 <Ionicons name="mail-outline" size={20} color={colors.textTertiary} />
@@ -321,6 +356,20 @@ export default function ProfileScreen() {
                 <Ionicons name="location-outline" size={20} color={colors.textTertiary} />
                 <Text style={[styles.infoText, { color: colors.text }]}>
                   {user?.country || 'No country set'}
+                </Text>
+              </View>
+
+              <View style={styles.infoRow}>
+                <Ionicons name="time-outline" size={20} color={colors.textTertiary} />
+                <Text style={[styles.infoText, { color: colors.text }]}>
+                  {user?.timezone || 'No timezone set'}
+                </Text>
+              </View>
+
+              <View style={styles.infoRow}>
+                <Ionicons name="cash-outline" size={20} color={colors.textTertiary} />
+                <Text style={[styles.infoText, { color: colors.text }]}>
+                  {user?.currencyCode || 'No currency set'}
                 </Text>
               </View>
             </View>

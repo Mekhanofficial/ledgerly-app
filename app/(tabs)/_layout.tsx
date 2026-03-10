@@ -1,14 +1,15 @@
 import { useTheme } from '@/context/ThemeContext';
 import { Ionicons } from '@expo/vector-icons';
 import { Tabs, router, useSegments } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import CustomHeader from '@/components/CustomHeader';
-import MoreOptionsModal from '@/components/MoreOptionsModal';
 import { StatusBar } from 'expo-status-bar';
 import { useUser } from '@/context/UserContext';
 import { hasRole, ROLE_GROUPS } from '@/utils/roleAccess';
+
+const MoreOptionsModal = lazy(() => import('@/components/MoreOptionsModal'));
 
 export default function TabLayout() {
   const insets = useSafeAreaInsets();
@@ -176,10 +177,14 @@ export default function TabLayout() {
         <Tabs.Screen name="receipts" options={{ href: null }} />
       </Tabs>
 
-      <MoreOptionsModal
-        visible={moreModalVisible}
-        onClose={() => setMoreModalVisible(false)}
-      />
+      {moreModalVisible && (
+        <Suspense fallback={null}>
+          <MoreOptionsModal
+            visible={moreModalVisible}
+            onClose={() => setMoreModalVisible(false)}
+          />
+        </Suspense>
+      )}
     </>
   );
 }

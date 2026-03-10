@@ -114,7 +114,7 @@ export default function InvoicesScreen() {
             borderColor: colors.border,
             shadowColor: colors.shadow,
           }]}>
-            <View style={styles.statIconContainer}>
+            <View style={[styles.statIconContainer, { backgroundColor: colors.primary50 }]}>
               <Ionicons name="document-text-outline" size={24} color={colors.primary500} />
             </View>
             <Text style={[styles.statTitle, { color: colors.textTertiary }]}>Total Invoices</Text>
@@ -128,7 +128,7 @@ export default function InvoicesScreen() {
             borderColor: colors.border,
             shadowColor: colors.shadow,
           }]}>
-            <View style={styles.statIconContainer}>
+            <View style={[styles.statIconContainer, { backgroundColor: colors.success + '18' }]}>
               <Ionicons name="cash-outline" size={24} color={colors.success} />
             </View>
             <Text style={[styles.statTitle, { color: colors.textTertiary }]}>Total Paid</Text>
@@ -264,7 +264,7 @@ export default function InvoicesScreen() {
                           e.stopPropagation();
                           handleDeleteInvoice(invoice.id);
                         }}
-                        style={styles.deleteButton}
+                        style={[styles.deleteButton, { backgroundColor: colors.error + '15' }]}
                       >
                         <Ionicons name="trash-outline" size={18} color={colors.error} />
                       </TouchableOpacity>
@@ -274,7 +274,7 @@ export default function InvoicesScreen() {
               </TouchableOpacity>
             ))
           ) : (
-            <View style={[styles.emptyState, { backgroundColor: colors.surface }]}>
+            <View style={[styles.emptyState, { backgroundColor: colors.surface, borderColor: colors.border }]}>
               <Ionicons name="document-outline" size={48} color={colors.textTertiary} />
               <Text style={[styles.emptyTitle, { color: colors.text }]}>No invoices found</Text>
               <Text style={[styles.emptyMessage, { color: colors.textSecondary }]}>
@@ -355,7 +355,6 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: 'rgba(0,0,0,0.03)',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 12,
@@ -496,7 +495,6 @@ const styles = StyleSheet.create({
   deleteButton: {
     padding: 6,
     borderRadius: 8,
-    backgroundColor: 'rgba(0,0,0,0.03)',
   },
   emptyState: {
     borderRadius: 20,
@@ -508,7 +506,6 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 3,
     borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.05)',
   },
   emptyTitle: {
     fontSize: 22,

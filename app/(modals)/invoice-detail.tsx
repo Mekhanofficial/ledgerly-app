@@ -21,8 +21,10 @@ import { getTemplateById } from '@/utils/templateCatalog';
 import { buildTemplateVariables, resolveTemplateTheme } from '@/utils/templateStyles';
 import { buildTemplateDecorations } from '@/utils/templateDecorations';
 import { resolveTemplateStyleVariant } from '@/utils/templateStyleVariants';
+import { getWatermarkText, shouldShowWatermark } from '@/utils/brandingPlan';
 import { formatCurrency, getCurrencySymbol, resolveCurrencyCode } from '@/utils/currency';
-import * as FileSystem from 'expo-file-system';
+import { buildPdfEmailAttachmentFromHtml } from '@/utils/emailPdfAttachment';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as Print from 'expo-print';
 
@@ -33,7 +35,7 @@ export default function InvoiceDetailScreen() {
     getInvoiceById,
     recordPayment,
     deleteInvoice,
-    updateInvoice,
+    sendInvoiceEmail,
     selectedInvoiceTemplate,
     templates,
   } = useData();
@@ -47,6 +49,9 @@ export default function InvoiceDetailScreen() {
   const [paymentAmount, setPaymentAmount] = useState('');
   const [invoice, setInvoice] = useState(getInvoiceById(id as string));
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
+  const [emailSubject, setEmailSubject] = useState('');
+  const [emailMessage, setEmailMessage] = useState('');
 
   const templateForInvoice = useMemo(() => {
     if (!invoice) return selectedInvoiceTemplate || getTemplateById('standard');
@@ -66,6 +71,38 @@ export default function InvoiceDetailScreen() {
       setInvoice(invoiceData);
     }
   }, [id, getInvoiceById]);
+
+  useEffect(() => {
+    if (!invoice) return;
+
+    const defaultSubjectTemplate = 'Invoice {{invoiceNumber}} from {{businessName}}';
+    const defaultMessageTemplate = [
+      'Dear {{customerName}},',
+      '',
+      'Please find your invoice details below.',
+      '',
+      'Invoice Number: {{invoiceNumber}}',
+      'Invoice Date: {{invoiceDate}}',
+      'Due Date: {{dueDate}}',
+      'Amount Due: {{totalAmount}} {{currency}}',
+      '',
+      'You can view and pay your invoice here: {{payNowUrl}}',
+      '',
+      'Thank you for your business.',
+      '{{businessName}}',
+    ].join('\n');
+
+    setEmailSubject(
+      invoice.emailSubject ||
+      templateForInvoice?.emailSubject ||
+      defaultSubjectTemplate
+    );
+    setEmailMessage(
+      invoice.emailMessage ||
+      templateForInvoice?.emailMessage ||
+      defaultMessageTemplate
+    );
+  }, [invoice?.id, invoice?.emailSubject, invoice?.emailMessage, templateForInvoice?.id]);
 
   const companyName = (
     user?.businessName?.trim() ||
@@ -182,7 +219,12 @@ export default function InvoiceDetailScreen() {
     });
 
     const resolvedTemplate = templateForInvoice || getTemplateById('standard');
-    const templateTheme = resolveTemplateTheme(resolvedTemplate);
+    const templateThemeBase = resolveTemplateTheme(resolvedTemplate);
+    const templateTheme = {
+      ...templateThemeBase,
+      showWatermark: shouldShowWatermark(user?.business?.subscription),
+      watermarkText: getWatermarkText(user?.business?.subscription),
+    };
     const templateVariables = buildTemplateVariables(templateTheme);
     const templateVariant = resolveTemplateStyleVariant(
       invoice.templateStyle || resolvedTemplate?.id,
@@ -200,8 +242,9 @@ export default function InvoiceDetailScreen() {
       ? 'background-image: radial-gradient(var(--accent) 1px, transparent 1px); background-size: 14px 14px;'
       : '';
     const watermarkMarkup = templateTheme.showWatermark
-      ? `<div class="watermark">${templateTheme.watermarkText}</div>`
+      ? `<div class="watermark-footer">${templateTheme.watermarkText}</div>`
       : '';
+    const brandingFooter = templateTheme.showWatermark ? 'Powered by Ledgerly' : '';
     const templateLabel = (resolvedTemplate?.name || resolvedTemplate?.id || 'Template').toUpperCase();
     const paymentTerms = resolvedTemplate?.paymentTerms || 'net-30';
     const currency = resolvedTemplate?.currency || currencyCode || 'USD';
@@ -242,14 +285,14 @@ export default function InvoiceDetailScreen() {
             min-height: 100%;
             padding: 24px;
           }
-          .watermark {
+          .watermark-footer {
             position: fixed;
-            top: 40%;
+            bottom: 14px;
             left: 50%;
-            transform: translate(-50%, -50%) rotate(-20deg);
-            font-size: 64px;
-            color: rgba(0, 0, 0, 0.06);
-            font-weight: bold;
+            transform: translateX(-50%);
+            font-size: 11px;
+            color: rgba(107, 114, 128, 0.65);
+            font-weight: 500;
             pointer-events: none;
           }
         </style>
@@ -351,7 +394,7 @@ export default function InvoiceDetailScreen() {
 
               <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #dee2e6; text-align: center; color: #6c757d; font-size: 12px;">
                 <div>Thank you for your business!</div>
-                <div style="margin-top: 5px;">Generated by Ledgerly Invoice System - ${templateLabel} Template</div>
+                ${brandingFooter ? `<div style="margin-top: 5px;">${brandingFooter}</div>` : ''}
               </div>
             </div>
           </div>
@@ -473,20 +516,50 @@ ${invoice.notes ? `\nNotes:\n${invoice.notes}` : ''}
   };
 
   const handleSendInvoice = async () => {
-    Alert.alert('Send Invoice', 'This would open your email client with the invoice attached.', [
+    if (!invoice.customerEmail) {
+      Alert.alert('Missing Customer Email', 'Add a customer email before sending this invoice.');
+      return;
+    }
+
+    Alert.alert('Send Invoice', `Send this invoice to ${invoice.customerEmail}?`, [
       { text: 'Cancel', style: 'cancel' },
       {
-        text: 'Continue',
+        text: 'Send',
         onPress: async () => {
+          setIsSendingEmail(true);
           try {
-            await updateInvoice(invoice.id, { status: 'sent' });
+            const htmlContent = generateInvoiceHTML();
+            const pdfAttachment = await buildPdfEmailAttachmentFromHtml({
+              html: htmlContent,
+              fileName: `invoice-${invoice.number}.pdf`,
+              source: 'frontend-mobile-invoice-template',
+            });
+            if (!pdfAttachment) {
+              throw new Error('Unable to generate invoice PDF from the selected template.');
+            }
+
+            await sendInvoiceEmail(invoice.id, {
+              customerEmail: invoice.customerEmail,
+              templateStyle:
+                invoice.templateStyle ||
+                templateForInvoice?.templateStyle ||
+                templateForInvoice?.id,
+              emailSubject: emailSubject.trim(),
+              emailMessage: emailMessage.trim(),
+              pdfAttachment,
+            });
             const updatedInvoice = getInvoiceById(id as string);
             if (updatedInvoice) {
               setInvoice(updatedInvoice);
             }
-            await handleDownloadPDF();
+            Alert.alert('Success', `Invoice sent to ${invoice.customerEmail}`);
           } catch (error) {
-            Alert.alert('Error', 'Failed to update invoice before sending.');
+            Alert.alert(
+              'Error',
+              (error as Error)?.message || 'Failed to send invoice email.'
+            );
+          } finally {
+            setIsSendingEmail(false);
           }
         },
       },
@@ -649,6 +722,38 @@ ${invoice.notes ? `\nNotes:\n${invoice.notes}` : ''}
           </View>
         )}
 
+        {canManageInvoice && (
+          <View style={[styles.section, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Email Template</Text>
+            <Text style={[styles.emailHelper, { color: colors.textTertiary }]}>
+              Edit the subject and body used when sending this invoice.
+            </Text>
+            <TextInput
+              style={[
+                styles.emailInput,
+                { backgroundColor: colors.background, borderColor: colors.border, color: colors.text },
+              ]}
+              value={emailSubject}
+              onChangeText={setEmailSubject}
+              placeholder="Email subject"
+              placeholderTextColor={colors.textTertiary}
+            />
+            <TextInput
+              style={[
+                styles.emailInput,
+                styles.emailMessageInput,
+                { backgroundColor: colors.background, borderColor: colors.border, color: colors.text },
+              ]}
+              value={emailMessage}
+              onChangeText={setEmailMessage}
+              placeholder="Email message"
+              placeholderTextColor={colors.textTertiary}
+              multiline
+              textAlignVertical="top"
+            />
+          </View>
+        )}
+
         {/* Action Buttons */}
         <View style={styles.actionButtons}>
           {canManageInvoice && invoice.status !== 'paid' && (
@@ -666,9 +771,16 @@ ${invoice.notes ? `\nNotes:\n${invoice.notes}` : ''}
               <TouchableOpacity 
                 style={[styles.secondaryButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
                 onPress={handleSendInvoice}
+                disabled={isSendingEmail}
               >
-                <Ionicons name="send-outline" size={20} color={colors.primary500} />
-                <Text style={[styles.secondaryButtonText, { color: colors.primary500 }]}>Send Invoice</Text>
+                <Ionicons
+                  name={isSendingEmail ? 'hourglass-outline' : 'send-outline'}
+                  size={20}
+                  color={colors.primary500}
+                />
+                <Text style={[styles.secondaryButtonText, { color: colors.primary500 }]}>
+                  {isSendingEmail ? 'Sending...' : 'Send Invoice'}
+                </Text>
               </TouchableOpacity>
             )}
             <TouchableOpacity 
@@ -864,6 +976,21 @@ const styles = StyleSheet.create({
   notesText: {
     fontSize: 14,
     lineHeight: 20,
+  },
+  emailHelper: {
+    fontSize: 13,
+    marginBottom: 10,
+  },
+  emailInput: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    marginTop: 10,
+  },
+  emailMessageInput: {
+    minHeight: 110,
   },
   actionButtons: {
     paddingHorizontal: 20,

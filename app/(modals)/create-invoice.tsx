@@ -46,6 +46,26 @@ interface Product {
   sku: string;
 }
 
+const formatNgn = (amount?: number) => {
+  const value = Number(amount || 0);
+  try {
+    return new Intl.NumberFormat('en-NG', {
+      style: 'currency',
+      currency: 'NGN',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(value);
+  } catch {
+    return `₦${value.toLocaleString('en-NG')}`;
+  }
+};
+
+const getIncludedPlanLabel = (category?: string) => {
+  if (category === 'ELITE') return 'Included in Enterprise plan';
+  if (category === 'PREMIUM') return 'Included in Professional plan';
+  return '';
+};
+
 type RecurringFrequency = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly';
 
 const RECURRING_FREQUENCY_OPTIONS: Array<{ label: string; value: RecurringFrequency }> = [
@@ -368,9 +388,10 @@ export default function CreateInvoiceScreen() {
 
   const handleTemplateSelect = async (template: Template) => {
     if (template.isPremium && !template.hasAccess) {
+      const includedPlan = getIncludedPlanLabel(template.category);
       Alert.alert(
-        'Premium Template',
-        `${template.name} is locked. Browse templates to unlock it.`,
+        `${template.category === 'ELITE' ? 'Elite' : 'Premium'} Template`,
+        `${template.name} is locked. ${includedPlan || 'Upgrade your plan'} or unlock for ${formatNgn(template.price ?? 0)}.`,
         [
           { text: 'Cancel', style: 'cancel' },
           { text: 'Browse Templates', onPress: () => router.push('/(modals)/settings/templates') },
@@ -701,6 +722,7 @@ export default function CreateInvoiceScreen() {
                       <TextInput
                         style={[styles.quantityInput, { 
                           color: colors.text,
+                          borderColor: colors.border,
                           backgroundColor: !item.productId ? colors.background + '80' : colors.background,
                           fontSize: isSmallScreen ? 14 : 16
                         }]}
@@ -1515,7 +1537,6 @@ const styles = StyleSheet.create({
     textAlignVertical: 'center',
     fontWeight: '600',
     borderWidth: 1,
-    borderColor: '#E5E7EB',
     paddingHorizontal: isSmallScreen ? 8 : 10,
     lineHeight: isSmallScreen ? 18 : 20,
   },

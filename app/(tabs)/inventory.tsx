@@ -206,7 +206,7 @@ export default function InventoryScreen() {
               marginRight: 12,
             }
           ]}>
-            <View style={styles.statIconContainer}>
+            <View style={[styles.statIconContainer, { backgroundColor: colors.primary50 }]}>
               <Ionicons name="cube-outline" size={24} color={colors.primary500} />
             </View>
             <Text style={[
@@ -248,7 +248,7 @@ export default function InventoryScreen() {
               marginRight: 12,
             }
           ]}>
-            <View style={styles.statIconContainer}>
+            <View style={[styles.statIconContainer, { backgroundColor: colors.success + '18' }]}>
               <Ionicons name="cash-outline" size={24} color={colors.success} />
             </View>
             <Text style={[
@@ -620,7 +620,7 @@ export default function InventoryScreen() {
               </TouchableOpacity>
             ))
           ) : (
-            <View style={[styles.emptyState, { backgroundColor: colors.surface }]}>
+            <View style={[styles.emptyState, { backgroundColor: colors.surface, borderColor: colors.border }]}>
               <Ionicons 
                 name="cube-outline" 
                 size={getResponsiveFontSize(60)} 
@@ -745,7 +745,6 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(0,0,0,0.03)',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 12,
@@ -932,7 +931,6 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 3,
     borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.05)',
     width: '100%',
   },
   emptyStateText: {

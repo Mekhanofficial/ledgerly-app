@@ -24,6 +24,9 @@ import { buildTemplateVariables, resolveTemplateTheme } from '@/utils/templateSt
 import TemplatePreviewModal from '@/components/templates/TemplatePreviewModal';
 import { buildTemplateDecorations } from '@/utils/templateDecorations';
 import { resolveTemplateStyleVariant } from '@/utils/templateStyleVariants';
+import { getWatermarkText, shouldShowWatermark } from '@/utils/brandingPlan';
+import { formatCurrency, resolveCurrencyCode } from '@/utils/currency';
+import { buildPdfEmailAttachmentFromHtml } from '@/utils/emailPdfAttachment';
 import { ROLE_GROUPS } from '@/utils/roleAccess';
 import { useRoleGuard } from '@/hooks/useRoleGuard';
 
@@ -35,6 +38,26 @@ interface ReceiptItem {
   quantity: number;
 }
 
+const formatNgn = (amount?: number) => {
+  const value = Number(amount || 0);
+  try {
+    return new Intl.NumberFormat('en-NG', {
+      style: 'currency',
+      currency: 'NGN',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(value);
+  } catch {
+    return `₦${value.toLocaleString('en-NG')}`;
+  }
+};
+
+const getIncludedPlanLabel = (category?: string) => {
+  if (category === 'ELITE') return 'Included in Enterprise plan';
+  if (category === 'PREMIUM') return 'Included in Professional plan';
+  return '';
+};
+
 export default function CreateReceiptScreen() {
   const { colors } = useTheme();
   const { canAccess } = useRoleGuard(ROLE_GROUPS.reports);
@@ -43,6 +66,7 @@ export default function CreateReceiptScreen() {
     inventory, 
     customers, 
     createReceipt, // Import as fallback
+    sendReceiptEmail,
     selectedReceiptTemplate,
     templates,
     setReceiptTemplate,
@@ -50,6 +74,8 @@ export default function CreateReceiptScreen() {
     taxSettings,
   } = useData();
   const { user } = useUser();
+  const currencyCode = resolveCurrencyCode(user || undefined);
+  const formatMoney = (value: number, options = {}) => formatCurrency(value, currencyCode, options);
   const params = useLocalSearchParams();
   
   const [items, setItems] = useState<ReceiptItem[]>([]);
@@ -196,9 +222,10 @@ export default function CreateReceiptScreen() {
 
   const handleTemplateSelect = async (template: Template) => {
     if (template.isPremium && !template.hasAccess) {
+      const includedPlan = getIncludedPlanLabel(template.category);
       Alert.alert(
-        'Premium Template',
-        `${template.name} is locked. Browse templates to unlock it.`,
+        `${template.category === 'ELITE' ? 'Elite' : 'Premium'} Template`,
+        `${template.name} is locked. ${includedPlan || 'Upgrade your plan'} or unlock for ${formatNgn(template.price ?? 0)}.`,
         [
           { text: 'Cancel', style: 'cancel' },
           { text: 'Browse Templates', onPress: () => router.push('/(modals)/settings/templates') },
@@ -227,7 +254,12 @@ export default function CreateReceiptScreen() {
     const paymentLabel = paymentMethod ? paymentMethod.toUpperCase() : 'CASH';
 
     const resolvedTemplate = selectedReceiptTemplate || getTemplateById('standard');
-    const templateTheme = resolveTemplateTheme(resolvedTemplate);
+    const templateThemeBase = resolveTemplateTheme(resolvedTemplate);
+    const templateTheme = {
+      ...templateThemeBase,
+      showWatermark: shouldShowWatermark(user?.business?.subscription),
+      watermarkText: getWatermarkText(user?.business?.subscription),
+    };
     const templateVariables = buildTemplateVariables(templateTheme);
     const templateVariant = resolveTemplateStyleVariant(
       resolvedTemplate?.templateStyle || resolvedTemplate?.id,
@@ -249,8 +281,9 @@ export default function CreateReceiptScreen() {
       ? 'background-image: radial-gradient(var(--accent) 1px, transparent 1px); background-size: 14px 14px;'
       : '';
     const watermarkMarkup = templateTheme.showWatermark
-      ? `<div class="watermark">${templateTheme.watermarkText}</div>`
+      ? `<div class="watermark-footer">${templateTheme.watermarkText}</div>`
       : '';
+    const brandingFooter = templateTheme.showWatermark ? 'Powered by Ledgerly' : '';
     const companyNameColor = resolvedTemplate?.layout?.hasGradientEffects ? 'var(--header-text)' : 'var(--primary)';
     const companyInfoColor = resolvedTemplate?.layout?.hasGradientEffects ? 'var(--header-text)' : 'var(--muted)';
 
@@ -421,14 +454,14 @@ export default function CreateReceiptScreen() {
             border-left: 4px solid var(--secondary);
             font-size: 12px;
           }
-          .watermark {
+          .watermark-footer {
             position: fixed;
-            top: 40%;
+            bottom: 14px;
             left: 50%;
-            transform: translate(-50%, -50%) rotate(-20deg);
-            font-size: 64px;
-            color: rgba(0, 0, 0, 0.06);
-            font-weight: bold;
+            transform: translateX(-50%);
+            font-size: 11px;
+            color: rgba(107, 114, 128, 0.65);
+            font-weight: 500;
             pointer-events: none;
           }
           @media print {
@@ -478,7 +511,7 @@ export default function CreateReceiptScreen() {
                 <div class="info-title">Payment</div>
                 <div>Method: ${paymentLabel}</div>
                 <div>Status: Completed</div>
-                <div>Amount: $${total.toFixed(2)}</div>
+                <div>Amount: ${formatMoney(total)}</div>
               </div>
             </div>
             
@@ -496,8 +529,8 @@ export default function CreateReceiptScreen() {
                   <tr>
                     <td>${item.name}</td>
                     <td class="text-center">${item.quantity}</td>
-                    <td class="text-right">$${item.price.toFixed(2)}</td>
-                    <td class="text-right">$${(item.price * item.quantity).toFixed(2)}</td>
+                    <td class="text-right">${formatMoney(item.price)}</td>
+                    <td class="text-right">${formatMoney(item.price * item.quantity)}</td>
                   </tr>
                 `).join('')}
               </tbody>
@@ -506,23 +539,23 @@ export default function CreateReceiptScreen() {
             <div class="summary">
               <div class="summary-row">
                 <span>Subtotal:</span>
-                <span>$${subtotal.toFixed(2)}</span>
+                <span>${formatMoney(subtotal)}</span>
               </div>
               ${discount > 0 ? `
                 <div class="summary-row">
                   <span>Discount:</span>
-                  <span>-$${discount.toFixed(2)}</span>
+                  <span>-${formatMoney(discount)}</span>
                 </div>
               ` : ''}
               ${taxEnabled ? `
                 <div class="summary-row">
                   <span>${taxName} (${taxRate}%):</span>
-                  <span>$${tax.toFixed(2)}</span>
+                  <span>${formatMoney(tax)}</span>
                 </div>
               ` : ''}
               <div class="total-row">
                 <span>Total Amount:</span>
-                <span>$${total.toFixed(2)}</span>
+                <span>${formatMoney(total)}</span>
               </div>
             </div>
             
@@ -537,6 +570,7 @@ export default function CreateReceiptScreen() {
               <p>Thank you for your business!</p>
               <p>Please retain this receipt for your records.</p>
               <p>Items are non-refundable. Store credit only within 30 days with receipt.</p>
+              ${brandingFooter ? `<p>${brandingFooter}</p>` : ''}
               <p>(c) ${new Date().getFullYear()} ${companyName}. All rights reserved.</p>
             </div>
           </div>
@@ -554,6 +588,11 @@ export default function CreateReceiptScreen() {
 
     if (total <= 0) {
       Alert.alert('Invalid Total', 'Total amount must be greater than zero.');
+      return;
+    }
+
+    if (sendEmail && !String(customerEmail || '').trim()) {
+      Alert.alert('Missing Customer Email', 'Please enter a customer email to send this receipt.');
       return;
     }
 
@@ -596,6 +635,26 @@ export default function CreateReceiptScreen() {
       } else {
         throw new Error('No receipt creation method available');
       }
+
+      if (sendEmail) {
+        const resolvedEmail = String(customerEmail || '').trim();
+        if (!resolvedEmail) {
+          throw new Error('Customer email is required when "Email Receipt" is enabled.');
+        }
+        const pdfAttachment = await buildPdfEmailAttachmentFromHtml({
+          html: htmlContent,
+          fileName: `receipt-${receiptId}.pdf`,
+          source: 'frontend-mobile-receipt-template',
+        });
+        if (!pdfAttachment) {
+          throw new Error('Unable to generate receipt PDF from the selected template.');
+        }
+        await sendReceiptEmail(receiptId, {
+          customerEmail: resolvedEmail,
+          templateStyle: receiptData.templateStyle,
+          pdfAttachment,
+        });
+      }
       
       // Generate PDF
       const { uri } = await Print.printToFileAsync({
@@ -627,7 +686,9 @@ export default function CreateReceiptScreen() {
       // Show success message
       Alert.alert(
         'Success', 
-        'Receipt generated successfully!',
+        sendEmail && customerEmail
+          ? `Receipt generated and emailed to ${customerEmail}.`
+          : 'Receipt generated successfully!',
         [
           { 
             text: 'View Receipt', 

@@ -12,7 +12,7 @@ import { useTheme } from '@/context/ThemeContext';
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { router, useFocusEffect } from 'expo-router';
 import Constants from 'expo-constants';
@@ -278,7 +278,7 @@ export default function SettingsScreen() {
             try {
               await logoutUser();
             } finally {
-              router.replace('/(auth)/login');
+              router.replace('/login');
             }
           },
         },

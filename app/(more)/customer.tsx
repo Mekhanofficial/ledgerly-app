@@ -371,7 +371,6 @@ const styles = StyleSheet.create({
   },
   customerCompany: {
     fontSize: 14,
-    color: '#666',
     marginBottom: 4,
   },
   statusBadge: {

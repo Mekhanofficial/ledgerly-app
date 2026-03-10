@@ -82,6 +82,9 @@ function RootLayoutContent() {
         {/* Welcome/Onboarding screen */}
         <Stack.Screen name="welcome" options={{ headerShown: false }} />
 
+        {/* Checkout deep-link bridge */}
+        <Stack.Screen name="checkout" options={{ headerShown: false }} />
+
         {/* Authentication screens (login/signup) */}
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
 

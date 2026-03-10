@@ -303,7 +303,7 @@ export default function ManageCategoriesScreen() {
                 <View key={category.name} style={[
                   styles.categoryCard,
                   { 
-                    backgroundColor: isDark ? colors.background : '#f8fafc',
+                    backgroundColor: isDark ? colors.surface : colors.cardSecondary,
                     shadowColor: colors.shadow,
                     width: isTablet ? '23%' : isSmallScreen ? '100%' : '48%'
                   }

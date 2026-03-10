@@ -1,17 +1,28 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, Platform, TextInput } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  RefreshControl,
+  Platform,
+  TextInput,
+  ActivityIndicator,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import RevenueCard from '@/components/dashboard/RevenueCard';
-import QuickActions from '@/components/dashboard/QuickActions';
-import RecentActivity from '@/components/dashboard/RecentActivity';
-import Alerts from '@/components/dashboard/Alerts';
 import { useTheme } from '../../context/ThemeContext' ; // FIXED IMPORT PATH
 import { useData } from '../../context/DataContext'; // FIXED IMPORT PATH
 import { useUser } from '../../context/UserContext'; // FIXED IMPORT PATH
-import { useState, useCallback } from 'react';
+import { Suspense, lazy, useState, useCallback, useMemo } from 'react';
 import { router } from 'expo-router';
 import { normalizeRole } from '@/utils/roleAccess';
 import { formatCurrency, resolveCurrencyCode } from '@/utils/currency';
+
+const RevenueCard = lazy(() => import('@/components/dashboard/RevenueCard'));
+const QuickActions = lazy(() => import('@/components/dashboard/QuickActions'));
+const RecentActivity = lazy(() => import('@/components/dashboard/RecentActivity'));
+const Alerts = lazy(() => import('@/components/dashboard/Alerts'));
 
 export default function HomeScreen() {
   const { colors } = useTheme();
@@ -20,24 +31,31 @@ export default function HomeScreen() {
   const role = normalizeRole(user?.role);
   const isClient = role === 'client';
   const currencyCode = resolveCurrencyCode(user || undefined);
-  const formatMoney = (value: number, options = {}) => formatCurrency(value, currencyCode, options);
-  const formatMoneyNoDecimals = (value: number) =>
-    formatMoney(value, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  const formatMoney = useCallback(
+    (value: number, options = {}) => formatCurrency(value, currencyCode, options),
+    [currencyCode]
+  );
+  const formatMoneyNoDecimals = useCallback(
+    (value: number) => formatMoney(value, { minimumFractionDigits: 0, maximumFractionDigits: 0 }),
+    [formatMoney]
+  );
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  
-  const currentDate = new Date();
-  const formattedDate = currentDate.toLocaleDateString('en-US', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric'
-  });
 
-  // Use actual user from context or show loading/placeholder
-  const userName = user 
-    ? `${user.firstName} ${user.lastName}`
-    : 'User'; // Fallback if user is null
+  const formattedDate = useMemo(() => {
+    const currentDate = new Date();
+    return currentDate.toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+  }, []);
+
+  const userName = useMemo(() => {
+    if (!user) return 'User';
+    return `${user.firstName} ${user.lastName}`;
+  }, [user]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -54,45 +72,51 @@ export default function HomeScreen() {
     }
   };
 
-  // Get recent activity from invoices
-  const recentActivity = invoices
-    .slice(0, 5)
-    .map(invoice => ({
-      id: invoice.id,
-      customer: invoice.customer,
-      invoice: invoice.number,
-      time: new Date(invoice.createdAt).toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-      }) + ' at ' + new Date(invoice.createdAt).toLocaleTimeString('en-US', {
-        hour: '2-digit',
-        minute: '2-digit',
-      }),
-      amount: formatMoney(invoice.amount || 0),
-      status: invoice.status,
-    }));
+  const recentActivity = useMemo(
+    () =>
+      invoices.slice(0, 5).map((invoice) => ({
+        id: invoice.id,
+        customer: invoice.customer,
+        invoice: invoice.number,
+        time:
+          new Date(invoice.createdAt).toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric',
+          }) +
+          ' at ' +
+          new Date(invoice.createdAt).toLocaleTimeString('en-US', {
+            hour: '2-digit',
+            minute: '2-digit',
+          }),
+        amount: formatMoney(invoice.amount || 0),
+        status: invoice.status,
+      })),
+    [formatMoney, invoices]
+  );
 
-  // Get alerts
-  const alerts = [
-    ...invoices
-      .filter(inv => inv.status === 'overdue')
-      .map(inv => ({
-        id: inv.id,
-        type: 'Payment Overdue',
-        message: `${inv.customer} invoice is overdue`,
-        colorType: 'error' as const,
-        icon: 'alert-circle' as const,
-      })),
-    ...customers
-      .filter(c => c.outstanding > 5000)
-      .map(c => ({
-        id: c.id,
-        type: 'High Outstanding',
-        message: `${c.name} has ${formatMoneyNoDecimals(c.outstanding || 0)} outstanding`,
-        colorType: 'warning' as const,
-        icon: 'warning' as const,
-      })),
-  ];
+  const alerts = useMemo(
+    () => [
+      ...invoices
+        .filter((inv) => inv.status === 'overdue')
+        .map((inv) => ({
+          id: inv.id,
+          type: 'Payment Overdue',
+          message: `${inv.customer} invoice is overdue`,
+          colorType: 'error' as const,
+          icon: 'alert-circle' as const,
+        })),
+      ...customers
+        .filter((customer) => customer.outstanding > 5000)
+        .map((customer) => ({
+          id: customer.id,
+          type: 'High Outstanding',
+          message: `${customer.name} has ${formatMoneyNoDecimals(customer.outstanding || 0)} outstanding`,
+          colorType: 'warning' as const,
+          icon: 'warning' as const,
+        })),
+    ],
+    [customers, formatMoneyNoDecimals, invoices]
+  );
 
   // Header height based on platform (CustomHeader + status bar)
   const headerHeight = Platform.OS === 'ios' ? 88 : 64;
@@ -184,41 +208,49 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Dashboard Stats */}
-        {!isClient && (
-          <View style={styles.statsSection}>
-            <RevenueCard
-              title="Total Revenue"
-              value={formatMoneyNoDecimals(dashboardStats.totalRevenue || 0)}
-              change={`${dashboardStats.totalPaid > 0 ? '+' : ''}${formatMoneyNoDecimals(dashboardStats.totalPaid || 0)} collected`}
-              color={colors.success}
-              icon="trending-up"
-            />
-            <RevenueCard
-              title="Outstanding Payments"
-              value={formatMoneyNoDecimals(dashboardStats.outstandingPayments || 0)}
-              change={`${dashboardStats.overdueInvoices} overdue invoices`}
-              color={colors.warning}
-              icon="alert-circle"
-            />
-            <RevenueCard
-              title="Low Stock Alert"
-              value={`${dashboardStats.lowStockItems} items`}
-              change="Need restocking"
-              color={colors.error}
-              icon="warning"
-            />
-          </View>
-        )}
+        <Suspense
+          fallback={(
+            <View style={styles.lazySectionFallback}>
+              <ActivityIndicator size="small" color={colors.primary500} />
+            </View>
+          )}
+        >
+          {/* Dashboard Stats */}
+          {!isClient && (
+            <View style={styles.statsSection}>
+              <RevenueCard
+                title="Total Revenue"
+                value={formatMoneyNoDecimals(dashboardStats.totalRevenue || 0)}
+                change={`${dashboardStats.totalPaid > 0 ? '+' : ''}${formatMoneyNoDecimals(dashboardStats.totalPaid || 0)} collected`}
+                color={colors.success}
+                icon="trending-up"
+              />
+              <RevenueCard
+                title="Outstanding Payments"
+                value={formatMoneyNoDecimals(dashboardStats.outstandingPayments || 0)}
+                change={`${dashboardStats.overdueInvoices} overdue invoices`}
+                color={colors.warning}
+                icon="alert-circle"
+              />
+              <RevenueCard
+                title="Low Stock Alert"
+                value={`${dashboardStats.lowStockItems} items`}
+                change="Need restocking"
+                color={colors.error}
+                icon="warning"
+              />
+            </View>
+          )}
 
-        {/* Quick Actions */}
-        {!isClient && <QuickActions />}
+          {/* Quick Actions */}
+          {!isClient && <QuickActions />}
 
-        {/* Recent Activity */}
-        <RecentActivity activities={recentActivity} />
+          {/* Recent Activity */}
+          <RecentActivity activities={recentActivity} />
 
-        {/* Alerts */}
-        {!isClient && <Alerts alerts={alerts} />}
+          {/* Alerts */}
+          {!isClient && <Alerts alerts={alerts} />}
+        </Suspense>
       </ScrollView>
     </SafeAreaView>
   );
@@ -318,5 +350,10 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 16,
     gap: 16,
+  },
+  lazySectionFallback: {
+    paddingVertical: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

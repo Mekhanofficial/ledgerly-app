@@ -19,12 +19,12 @@ export interface TemplateTheme {
 }
 
 const DEFAULTS = {
-  primary: '#4F46E5',
-  secondary: '#6366F1',
-  accent: '#F9FAFB',
-  text: '#111827',
-  muted: '#6B7280',
-  border: '#E5E7EB',
+  primary: '#0ea5e9',
+  secondary: '#2563eb',
+  accent: '#f5f7ff',
+  text: '#0f172a',
+  muted: '#64748b',
+  border: '#e2e8f0',
 };
 
 const FONT_MAP: Record<string, string> = {
@@ -76,7 +76,7 @@ export const resolveTemplateTheme = (template?: Template | null): TemplateTheme 
     border,
     headerBackground,
     headerText: '#FFFFFF',
-    watermarkText: template?.layout?.watermarkText || template?.name?.toUpperCase() || 'LEDGERLY',
+    watermarkText: 'Powered by Ledgerly',
     showWatermark: Boolean(template?.layout?.showWatermark),
     showHeaderBorder: template?.layout?.showHeaderBorder !== false,
     showFooter: template?.layout?.showFooter !== false,

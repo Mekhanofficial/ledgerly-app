@@ -283,7 +283,7 @@ export default function ScheduleReportScreen() {
             </Text>
           ) : (
             scheduledReports.map((entry) => (
-              <View key={entry.id} style={styles.scheduleCard}>
+              <View key={entry.id} style={[styles.scheduleCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
                 <View>
                   <Text style={[styles.listTitle, { color: colors.text }]}>
                     {entry.frequency.charAt(0).toUpperCase() + entry.frequency.slice(1)} ·{' '}
@@ -435,7 +435,7 @@ const styles = StyleSheet.create({
     borderColor: 'transparent',
     padding: 12,
     marginBottom: 12,
-    backgroundColor: '#fff',
+    backgroundColor: 'transparent',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
     elevation: 2,

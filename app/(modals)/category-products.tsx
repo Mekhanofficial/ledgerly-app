@@ -76,14 +76,14 @@ export default function CategoryProductsScreen() {
             <Text style={[styles.statValue, { color: colors.text }]}>{products.length}</Text>
             <Text style={[styles.statLabel, { color: colors.textTertiary }]}>Total Products</Text>
           </View>
-          <View style={styles.statDivider} />
+          <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
           <View style={styles.statItem}>
             <Text style={[styles.statValue, { color: colors.text }]}>
               ${totalValue.toLocaleString()}
             </Text>
             <Text style={[styles.statLabel, { color: colors.textTertiary }]}>Total Value</Text>
           </View>
-          <View style={styles.statDivider} />
+          <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
           <View style={styles.statItem}>
             <Text style={[styles.statValue, { color: colors.text }]}>
               {products.filter(p => p.status === 'in-stock').length}
@@ -210,7 +210,7 @@ const styles = StyleSheet.create({
   statDivider: {
     width: 1,
     height: 40,
-    backgroundColor: '#e2e8f0',
+    backgroundColor: 'transparent',
   },
   productsList: {
     paddingHorizontal: 20,

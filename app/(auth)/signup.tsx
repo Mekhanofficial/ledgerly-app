@@ -15,7 +15,7 @@ import {
   Image,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '@/context/ThemeContext';
 import { useUser } from '../../context/UserContext';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -32,6 +32,33 @@ interface Country {
   currencyCode: string;
   currencySymbol: string;
 }
+
+const readSearchParam = (value?: string | string[]) =>
+  String(Array.isArray(value) ? value[0] || '' : value || '').trim();
+
+const normalizePlanId = (value?: string | string[]) => {
+  const normalized = readSearchParam(value).toLowerCase();
+  if (normalized === 'pro') return 'professional';
+  if (normalized === 'starter' || normalized === 'professional' || normalized === 'enterprise') {
+    return normalized;
+  }
+  return '';
+};
+
+const normalizeBillingCycle = (value?: string | string[]) =>
+  readSearchParam(value).toLowerCase() === 'yearly' ? 'yearly' : 'monthly';
+
+const normalizeCheckoutPaid = (value?: string | string[]) => {
+  const normalized = readSearchParam(value).toLowerCase();
+  if (!normalized) return null;
+  if (['1', 'true', 'yes', 'paid', 'success', 'successful'].includes(normalized)) {
+    return true;
+  }
+  if (['0', 'false', 'no', 'failed', 'failure', 'cancelled', 'canceled'].includes(normalized)) {
+    return false;
+  }
+  return null;
+};
 
 const GENDER_OPTIONS = ['Male', 'Female', 'Other', 'Prefer not to say'];
 const BUSINESS_TYPE_OPTIONS = [
@@ -60,6 +87,14 @@ const INDUSTRY_OPTIONS = [
 export default function SignupScreen() {
   const { colors } = useTheme();
   const { registerUser } = useUser();
+  const params = useLocalSearchParams<{
+    email?: string | string[];
+    checkoutEmail?: string | string[];
+    reference?: string | string[];
+    selectedPlan?: string | string[];
+    billingCycle?: string | string[];
+    paid?: string | string[];
+  }>();
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -81,7 +116,6 @@ export default function SignupScreen() {
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [apiError, setApiError] = useState('');
-  const [registrationSuccess, setRegistrationSuccess] = useState(false);
   const [currentStep, setCurrentStep] = useState(1);
   const [genderPickerVisible, setGenderPickerVisible] = useState(false);
   const [countryPickerVisible, setCountryPickerVisible] = useState(false);
@@ -100,6 +134,51 @@ export default function SignupScreen() {
         )
       : sortedCountries;
   }, [sortedCountries, countrySearch]);
+  const checkoutEmailParam = useMemo(
+    () => readSearchParam(params.checkoutEmail || params.email).toLowerCase(),
+    [params.checkoutEmail, params.email]
+  );
+  const paymentReferenceParam = useMemo(
+    () => readSearchParam(params.reference),
+    [params.reference]
+  );
+  const paidStatusParam = useMemo(
+    () => normalizeCheckoutPaid(params.paid),
+    [params.paid]
+  );
+  const effectivePaymentReferenceParam = useMemo(() => {
+    if (paidStatusParam === false) {
+      return '';
+    }
+    return paymentReferenceParam;
+  }, [paidStatusParam, paymentReferenceParam]);
+  const selectedPlanParam = useMemo(
+    () => normalizePlanId(params.selectedPlan),
+    [params.selectedPlan]
+  );
+  const selectedBillingCycleParam = useMemo(
+    () => normalizeBillingCycle(params.billingCycle),
+    [params.billingCycle]
+  );
+  const checkoutNotice = useMemo(() => {
+    if (paidStatusParam === false) {
+      return 'Payment was not completed. Continue signup for free trial or restart checkout.';
+    }
+    if (selectedPlanParam) {
+      const planLabel = `${selectedPlanParam.charAt(0).toUpperCase()}${selectedPlanParam.slice(1)}`;
+      if (paidStatusParam === true && effectivePaymentReferenceParam) {
+        return `Payment received for ${planLabel} (${selectedBillingCycleParam}). Complete signup to continue setup.`;
+      }
+      if (effectivePaymentReferenceParam) {
+        return `Payment reference detected for ${planLabel} (${selectedBillingCycleParam}). Complete signup to continue setup.`;
+      }
+      return `Selected plan: ${planLabel} (${selectedBillingCycleParam}). Complete signup to continue checkout.`;
+    }
+    if (effectivePaymentReferenceParam) {
+      return `Payment reference detected. Complete signup to activate your account.`;
+    }
+    return '';
+  }, [effectivePaymentReferenceParam, paidStatusParam, selectedBillingCycleParam, selectedPlanParam]);
 
   // Auto-populate currency when country is selected
   useEffect(() => {
@@ -116,6 +195,11 @@ export default function SignupScreen() {
       }
     }
   }, [formData.country]);
+
+  useEffect(() => {
+    if (!checkoutEmailParam) return;
+    setFormData((prev) => (prev.email ? prev : { ...prev, email: checkoutEmailParam }));
+  }, [checkoutEmailParam]);
 
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -257,17 +341,20 @@ export default function SignupScreen() {
         country: formData.country,
         currencyCode: formData.currencyCode,
         currencySymbol: formData.currencySymbol,
+        paymentReference: effectivePaymentReferenceParam || undefined,
       };
 
-      await registerUser(userData);
-      
-      // Show success message
-      setRegistrationSuccess(true);
-      
-      // Auto-redirect to login after 3 seconds
-      setTimeout(() => {
-        router.push('/(auth)/login');
-      }, 3000);
+      const registration = await registerUser(userData);
+      const emailForVerification = registration.verificationEmail || userData.email.toLowerCase().trim();
+      const otpSent = registration.otpSent !== false;
+      router.push({
+        pathname: '/verify-email',
+        params: {
+          email: emailForVerification,
+          notice: registration.message,
+          noticeType: otpSent ? 'info' : 'error'
+        }
+      } as never);
       
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Registration failed';
@@ -331,64 +418,11 @@ export default function SignupScreen() {
     </View>
   );
 
-  // If registration was successful, show success message
-  if (registrationSuccess) {
-    return (
-      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-        <View style={styles.background} pointerEvents="none">
-          <LinearGradient
-            colors={[colors.primary50, colors.background, colors.primary100]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={StyleSheet.absoluteFill}
-          />
-          <View
-            style={[
-              styles.glow,
-              {
-                backgroundColor: colors.primary500 + '22',
-                top: -60,
-                right: -40,
-              },
-            ]}
-          />
-          <View
-            style={[
-              styles.glowSmall,
-              {
-                backgroundColor: colors.info + '18',
-                bottom: 80,
-                left: -30,
-              },
-            ]}
-          />
-        </View>
-        <View style={styles.successContainer}>
-          <View style={[styles.successIcon, { backgroundColor: colors.success + '20' }]}>
-            <Icon name="check-circle" size={60} color={colors.success} />
-          </View>
-          <Text style={[styles.successTitle, { color: colors.text }]}>
-            Account Created Successfully!
-          </Text>
-          <Text style={[styles.successMessage, { color: colors.textSecondary }]}>
-            Your Ledgerly account has been created. You'll be redirected to the login page in a few seconds.
-          </Text>
-          <TouchableOpacity 
-            style={[styles.goToLoginButton, { backgroundColor: colors.primary500 }]}
-            onPress={() => router.push('/(auth)/login')}
-          >
-            <Text style={styles.goToLoginText}>Go to Login Now</Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={styles.background} pointerEvents="none">
         <LinearGradient
-          colors={[colors.primary50, colors.background, colors.primary100]}
+          colors={[colors.pageGradientStart, colors.background, colors.pageGradientEnd]}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={StyleSheet.absoluteFill}
@@ -397,7 +431,7 @@ export default function SignupScreen() {
           style={[
             styles.glow,
             {
-              backgroundColor: colors.primary500 + '22',
+              backgroundColor: colors.glowCyan,
               top: -60,
               right: -40,
             },
@@ -407,7 +441,7 @@ export default function SignupScreen() {
           style={[
             styles.glowSmall,
             {
-              backgroundColor: colors.info + '18',
+              backgroundColor: colors.glowBlue,
               bottom: 120,
               left: -30,
             },
@@ -453,6 +487,13 @@ export default function SignupScreen() {
                   ? 'Start your 30-day free trial. No credit card required.'
                   : 'Tell us about your business to get started'}
               </Text>
+              {checkoutNotice ? (
+                <View style={[styles.checkoutNotice, { backgroundColor: colors.primary100, borderColor: colors.primary200 }]}>
+                  <Text style={[styles.checkoutNoticeText, { color: colors.primary700 }]}>
+                    {checkoutNotice}
+                  </Text>
+                </View>
+              ) : null}
           </View>
         </View>
 
@@ -469,7 +510,7 @@ export default function SignupScreen() {
                     <Text style={[styles.errorActionText, { color: colors.error }]}>Dismiss</Text>
                   </TouchableOpacity>
                   {apiError.includes('already exists') && (
-                    <TouchableOpacity onPress={() => router.push('/(auth)/login')}>
+                    <TouchableOpacity onPress={() => router.push('/login')}>
                       <Text style={[styles.errorActionText, { color: colors.primary500 }]}>Go to Login</Text>
                     </TouchableOpacity>
                   )}
@@ -845,7 +886,7 @@ export default function SignupScreen() {
                 disabled={isLoading}
               >
                 <LinearGradient
-                  colors={[colors.primary500, colors.primary600]}
+                  colors={[colors.brandGradientStart, colors.brandGradientEnd]}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
                   style={styles.signupButtonGradient}
@@ -871,7 +912,7 @@ export default function SignupScreen() {
                   disabled={isLoading}
                 >
                   <LinearGradient
-                    colors={[colors.primary500, colors.primary600]}
+                    colors={[colors.brandGradientStart, colors.brandGradientEnd]}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 0 }}
                     style={styles.signupButtonGradient}
@@ -913,7 +954,7 @@ export default function SignupScreen() {
                   <Text style={[styles.footerText, { color: colors.textSecondary }]}>
                     Already have an account?{' '}
                   </Text>
-                  <TouchableOpacity onPress={() => router.push('/(auth)/login')} disabled={isLoading}>
+                  <TouchableOpacity onPress={() => router.push('/login')} disabled={isLoading}>
                     <Text style={[styles.footerLink, { color: colors.primary500 }]}>
                       Sign in
                     </Text>
@@ -1173,6 +1214,18 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     maxWidth: '90%',
   },
+  checkoutNotice: {
+    marginTop: 10,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  checkoutNoticeText: {
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 17,
+  },
   stepIndicator: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1192,7 +1245,6 @@ const styles = StyleSheet.create({
     height: 28,
     borderRadius: 14,
     borderWidth: 2,
-    borderColor: '#CBD5E1',
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: 'transparent',
@@ -1270,7 +1322,9 @@ const styles = StyleSheet.create({
     height: 56,
   },
   inputIcon: {
+    width: 20,
     marginRight: 12,
+    textAlign: 'center',
   },
   input: {
     flex: 1,
@@ -1280,6 +1334,8 @@ const styles = StyleSheet.create({
   dropdownText: {
     flex: 1,
     fontSize: 16,
+    minWidth: 0,
+    marginRight: 8,
   },
   eyeIcon: {
     padding: 4,

@@ -92,7 +92,7 @@ export default function WelcomeScreen() {
     <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
       <View style={styles.background} pointerEvents="none">
         <LinearGradient
-          colors={[colors.primary50, colors.background, colors.primary100]}
+          colors={[colors.pageGradientStart, colors.background, colors.pageGradientEnd]}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={StyleSheet.absoluteFill}
@@ -101,7 +101,7 @@ export default function WelcomeScreen() {
           style={[
             styles.glow,
             {
-              backgroundColor: colors.primary500 + '22',
+              backgroundColor: colors.glowCyan,
               top: -60,
               right: -40,
             },
@@ -111,7 +111,7 @@ export default function WelcomeScreen() {
           style={[
             styles.glowSmall,
             {
-              backgroundColor: colors.info + '22',
+              backgroundColor: colors.glowBlue,
               bottom: 120,
               left: -20,
             },
@@ -217,12 +217,12 @@ export default function WelcomeScreen() {
             <TouchableOpacity
               style={[styles.primaryButton, { shadowColor: colors.shadow }]}
               onPress={() =>
-                isLastSlide ? router.push('/(auth)/login') : goToSlide(activeIndex + 1)
+                isLastSlide ? router.push('/plan-onboarding') : goToSlide(activeIndex + 1)
               }
             >
-              <LinearGradient colors={[colors.primary500, colors.primary600]} style={styles.buttonGradient}>
+              <LinearGradient colors={[colors.brandGradientStart, colors.brandGradientEnd]} style={styles.buttonGradient}>
                 <Text style={styles.primaryButtonText}>
-                  {isLastSlide ? 'Get Started' : 'Next'}
+                  {isLastSlide ? 'Choose Plan' : 'Next'}
                 </Text>
               </LinearGradient>
             </TouchableOpacity>
@@ -230,9 +230,9 @@ export default function WelcomeScreen() {
             {isLastSlide ? (
               <TouchableOpacity
                 style={[styles.secondaryButton, { borderColor: colors.primary500, backgroundColor: colors.surface }]}
-                onPress={() => router.push('/(auth)/signup')}
+                onPress={() => router.push('/login')}
               >
-                <Text style={[styles.secondaryButtonText, { color: colors.primary500 }]}>Create Account</Text>
+                <Text style={[styles.secondaryButtonText, { color: colors.primary500 }]}>I already have an account</Text>
               </TouchableOpacity>
             ) : null}
           </View>

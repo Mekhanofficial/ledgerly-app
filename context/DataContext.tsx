@@ -11,8 +11,8 @@ import React, {
 } from 'react';
 import { Alert, Linking } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as FileSystem from 'expo-file-system';
-import { apiGet, apiPost, apiPut, apiDelete, API_BASE_URL } from '@/services/apiClient';
+import * as FileSystem from 'expo-file-system/legacy';
+import { apiGet, apiPost, apiPut, apiDelete, API_BASE_URL, ApiError } from '@/services/apiClient';
 import { useUser } from '@/context/UserContext';
 import {
   INVOICE_TEMPLATE_KEY,
@@ -23,6 +23,7 @@ import {
 import { getBuiltInTemplates, mergeTemplates } from '@/utils/templateCatalog';
 import { initializeTemplatePayment } from '@/services/billingService';
 import { formatCurrency, resolveCurrencyCode } from '@/utils/currency';
+import type { EmailPdfAttachmentPayload } from '@/utils/emailPdfAttachment';
 
 export interface Category {
   id: string;
@@ -122,6 +123,8 @@ export interface Invoice {
   notes: string;
   recurring?: InvoiceRecurring;
   templateStyle?: string;
+  emailSubject?: string;
+  emailMessage?: string;
   inventoryAdjusted?: boolean;
   createdAt: string;
   updatedAt?: string;
@@ -259,6 +262,20 @@ export interface Template {
   createdAt?: string;
 }
 
+interface InvoiceEmailPayload {
+  customerEmail?: string;
+  templateStyle?: string;
+  emailSubject?: string;
+  emailMessage?: string;
+  pdfAttachment?: EmailPdfAttachmentPayload;
+}
+
+interface ReceiptEmailPayload {
+  customerEmail?: string;
+  templateStyle?: string;
+  pdfAttachment?: EmailPdfAttachmentPayload;
+}
+
 const mapTemplateRecord = (template: any): Template => ({
   id: template.id || template._id || template.templateId,
   name: template.name || 'Template',
@@ -310,6 +327,7 @@ interface DataContextType {
   createInvoice: (invoiceData: Omit<Invoice, 'id' | 'createdAt'>) => Promise<string>;
   updateInvoice: (id: string, updates: Partial<Invoice>) => Promise<void>;
   deleteInvoice: (id: string) => Promise<void>;
+  sendInvoiceEmail: (invoiceId: string, payload?: InvoiceEmailPayload) => Promise<void>;
   recordPayment: (invoiceId: string, amount: number, paymentMethod?: string) => Promise<void>;
   getInvoiceById: (id: string) => Invoice | undefined;
   getInvoices: () => Invoice[];
@@ -333,6 +351,7 @@ interface DataContextType {
   addReceipt: (receiptData: Omit<Receipt, 'id' | 'number' | 'createdAt'>) => Promise<string>;
   updateReceipt: (id: string, updates: Partial<Receipt>) => Promise<void>;
   deleteReceipt: (id: string) => Promise<void>;
+  sendReceiptEmail: (receiptId: string, payload?: ReceiptEmailPayload) => Promise<void>;
   getReceiptById: (id: string) => Receipt | undefined;
   getReceipts: () => Receipt[];
 
@@ -343,6 +362,7 @@ interface DataContextType {
   refreshTemplates: () => Promise<void>;
   setInvoiceTemplate: (templateId: string) => Promise<void>;
   setReceiptTemplate: (templateId: string) => Promise<void>;
+  updateTemplateEmailContent: (templateId: string, payload: { emailSubject: string; emailMessage: string }) => Promise<void>;
   purchaseTemplate: (templateId: string) => Promise<void>;
   refreshTaxSettings: () => Promise<void>;
 }
@@ -452,8 +472,28 @@ const resolveMediaUrl = (path?: string) => {
   return `${API_BASE_URL}/${normalized}`;
 };
 
+const AUTH_SESSION_ERROR_PATTERNS = [
+  /user no longer exists/i,
+  /unauthori[sz]ed/i,
+  /not authorized/i,
+  /invalid token/i,
+  /token expired/i,
+  /jwt/i,
+  /forbidden/i,
+];
+
+const isAuthSessionError = (error: unknown) => {
+  if (error instanceof ApiError) {
+    if (error.status === 401 || error.status === 403) return true;
+    if (error.status === 404 && /user/i.test(error.message)) return true;
+  }
+
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  return AUTH_SESSION_ERROR_PATTERNS.some((pattern) => pattern.test(message));
+};
+
 export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
-  const { user, isAuthenticated } = useUser();
+  const { user, isAuthenticated, refreshUser } = useUser();
   const currencyCode = resolveCurrencyCode(user || undefined);
   const formatMoney = useCallback(
     (value: number, options = {}) => formatCurrency(value, currencyCode, options),
@@ -605,7 +645,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
       number: invoice.invoiceNumber || invoice.number || '',
       customer: customer?.name || invoice.customerName || '',
       customerId: customer?._id || invoice.customer,
-      customerEmail: customer?.email || invoice.customerEmail || '',
+      customerEmail: customer?.email || invoice.customerEmail || invoice.clientEmail || '',
       customerPhone: customer?.phone || invoice.customerPhone || '',
       issueDate: invoice.date || invoice.issueDate || invoice.createdAt || new Date().toISOString(),
       dueDate: invoice.dueDate || invoice.createdAt || new Date().toISOString(),
@@ -643,6 +683,8 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
         invoice.templateId ||
         invoice.template ||
         (resolvedId ? invoiceTemplateStyleMap[resolvedId] : undefined),
+      emailSubject: invoice.emailSubject || '',
+      emailMessage: invoice.emailMessage || '',
       createdAt: invoice.createdAt || new Date().toISOString(),
       updatedAt: invoice.updatedAt,
     };
@@ -752,9 +794,13 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
         allowManualOverride: data.allowManualOverride ?? true,
       });
     } catch (error) {
+      if (isAuthSessionError(error)) {
+        await refreshUser();
+        return;
+      }
       console.error('Failed to load tax settings:', error);
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, refreshUser]);
 
   const refreshData = useCallback(async () => {
     if (!isAuthenticated) return;
@@ -847,6 +893,10 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
         await loadFallbackTemplates();
       }
     } catch (error) {
+      if (isAuthSessionError(error)) {
+        await refreshUser();
+        return;
+      }
       console.error('Failed to refresh data:', error);
       await loadFallbackTemplates();
     } finally {
@@ -864,6 +914,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     applyTemplateSelection,
     mergeTemplates,
     loadFallbackTemplates,
+    refreshUser,
   ]);
 
   useEffect(() => {
@@ -1209,10 +1260,149 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     await AsyncStorage.setItem(RECEIPT_TEMPLATE_KEY, templateId);
   }, []);
 
+  const updateTemplateEmailContent = useCallback(
+    async (templateId: string, payload: { emailSubject: string; emailMessage: string }) => {
+      const response: any = await apiPut(`/api/v1/templates/${templateId}/email-content`, {
+        emailSubject: payload.emailSubject || '',
+        emailMessage: payload.emailMessage || '',
+      });
+      const data = response?.data || {};
+      const resolvedTemplateId = String(data.templateId || templateId);
+      const resolvedSubject = String(data.emailSubject || '');
+      const resolvedMessage = String(data.emailMessage || '');
+
+      setTemplates((prev) =>
+        prev.map((template) => {
+          if (template.id !== resolvedTemplateId && template.templateStyle !== resolvedTemplateId) {
+            return template;
+          }
+          return {
+            ...template,
+            emailSubject: resolvedSubject,
+            emailMessage: resolvedMessage,
+          };
+        })
+      );
+    },
+    []
+  );
+
+  const sendInvoiceEmail = useCallback(
+    async (invoiceId: string, payload: InvoiceEmailPayload = {}) => {
+      const existingInvoice = invoices.find((invoice) => invoice.id === invoiceId);
+      if (!payload.pdfAttachment?.data) {
+        throw new Error(
+          'Unable to send invoice email without a frontend template PDF attachment.'
+        );
+      }
+      const templateStyle =
+        payload.templateStyle ||
+        existingInvoice?.templateStyle ||
+        selectedInvoiceTemplate?.templateStyle ||
+        selectedInvoiceTemplate?.id ||
+        invoiceTemplateId ||
+        undefined;
+
+      const templateMatch = templateStyle
+        ? templates.find(
+            (template) =>
+              template.id === templateStyle || template.templateStyle === templateStyle
+          )
+        : null;
+
+      const body: Record<string, any> = {};
+      if (payload.customerEmail) body.customerEmail = payload.customerEmail;
+      if (templateStyle) body.templateStyle = templateStyle;
+
+      const resolvedEmailSubject = payload.emailSubject ?? templateMatch?.emailSubject ?? '';
+      const resolvedEmailMessage = payload.emailMessage ?? templateMatch?.emailMessage ?? '';
+      if (resolvedEmailSubject) body.emailSubject = resolvedEmailSubject;
+      if (resolvedEmailMessage) body.emailMessage = resolvedEmailMessage;
+      body.pdfAttachment = payload.pdfAttachment;
+
+      const response: any = await apiPost(`/api/v1/invoices/${invoiceId}/send`, body);
+      const updatedInvoice = mapInvoice(response?.data || response);
+      setInvoices((prev) => prev.map((invoice) => (invoice.id === invoiceId ? updatedInvoice : invoice)));
+      await saveInvoiceTemplateStyle(updatedInvoice.id, updatedInvoice.templateStyle || templateStyle);
+      addNotification({
+        type: 'invoice',
+        title: 'Invoice Sent',
+        message: `Invoice #${updatedInvoice.number} was emailed successfully.`,
+        time: 'Just now',
+        action: {
+          label: 'View Invoice',
+          route: `/(modals)/invoice-detail?id=${updatedInvoice.id}`,
+        },
+        priority: 'high',
+        dataId: updatedInvoice.id,
+      });
+    },
+    [
+      addNotification,
+      invoiceTemplateId,
+      invoices,
+      mapInvoice,
+      saveInvoiceTemplateStyle,
+      selectedInvoiceTemplate,
+      templates,
+    ]
+  );
+
+  const sendReceiptEmail = useCallback(
+    async (receiptId: string, payload: ReceiptEmailPayload = {}) => {
+      if (!payload.pdfAttachment?.data) {
+        throw new Error(
+          'Unable to send receipt email without a frontend template PDF attachment.'
+        );
+      }
+      const existingReceipt = receipts.find((receipt) => receipt.id === receiptId);
+      const templateStyle =
+        payload.templateStyle ||
+        existingReceipt?.templateStyle ||
+        selectedReceiptTemplate?.templateStyle ||
+        selectedReceiptTemplate?.id ||
+        receiptTemplateId ||
+        undefined;
+
+      const body: Record<string, any> = {};
+      if (payload.customerEmail) body.customerEmail = payload.customerEmail;
+      if (templateStyle) body.templateStyle = templateStyle;
+      body.pdfAttachment = payload.pdfAttachment;
+      await apiPost(`/api/v1/receipts/${receiptId}/email`, body);
+
+      if (existingReceipt?.id && templateStyle) {
+        await saveReceiptTemplateStyle(existingReceipt.id, templateStyle);
+      }
+      addNotification({
+        type: 'success',
+        title: 'Receipt Sent',
+        message: existingReceipt
+          ? `Receipt #${existingReceipt.number} was emailed successfully.`
+          : 'Receipt was emailed successfully.',
+        time: 'Just now',
+        action: existingReceipt
+          ? {
+              label: 'View Receipt',
+              route: `/(modals)/receipt-detail?id=${existingReceipt.id}`,
+            }
+          : undefined,
+        priority: 'medium',
+        dataId: existingReceipt?.id || receiptId,
+      });
+    },
+    [
+      addNotification,
+      receiptTemplateId,
+      receipts,
+      saveReceiptTemplateStyle,
+      selectedReceiptTemplate,
+    ]
+  );
+
   const purchaseTemplate = useCallback(
     async (templateId: string) => {
       try {
-        const response: any = await initializeTemplatePayment({ templateId });
+        const response: any = await initializeTemplatePayment({ templateId, type: 'template' });
         const data = response?.data ?? response ?? {};
         const url = data?.authorizationUrl || data?.authorization_url;
         if (url) {
@@ -1358,6 +1548,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
       const payload: any = {
         invoiceNumber: invoiceData.number,
         customer: customerId,
+        clientEmail: invoiceData.customerEmail || undefined,
         date: invoiceData.issueDate,
         dueDate: invoiceData.dueDate,
         items,
@@ -1996,6 +2187,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     createInvoice,
     updateInvoice,
     deleteInvoice,
+    sendInvoiceEmail,
     recordPayment,
     getInvoiceById,
     getInvoices,
@@ -2014,6 +2206,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     addReceipt,
     updateReceipt,
     deleteReceipt,
+    sendReceiptEmail,
     getReceiptById,
     getReceipts,
     refreshData,
@@ -2022,6 +2215,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     refreshTemplates,
     setInvoiceTemplate,
     setReceiptTemplate,
+    updateTemplateEmailContent,
     purchaseTemplate,
     refreshTaxSettings,
   };

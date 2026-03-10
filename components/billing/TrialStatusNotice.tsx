@@ -20,14 +20,16 @@ const formatTrialDate = (value?: string | null) => {
 export default function TrialStatusNotice({ trialEndsAt }: TrialStatusNoticeProps) {
   const { colors, isDark } = useTheme();
   const formattedDate = formatTrialDate(trialEndsAt);
+  const warningBorder = `${colors.warning}${isDark ? '59' : '52'}`;
+  const warningBackground = `${colors.warning}${isDark ? '1A' : '14'}`;
 
   return (
     <View
       style={[
         styles.container,
         {
-          borderColor: isDark ? 'rgba(251, 191, 36, 0.35)' : '#FCD34D',
-          backgroundColor: isDark ? 'rgba(251, 191, 36, 0.10)' : '#FFFBEB',
+          borderColor: warningBorder,
+          backgroundColor: warningBackground,
         },
       ]}
     >

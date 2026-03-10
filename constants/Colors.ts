@@ -25,10 +25,18 @@ export const lightColors = {
   gray900: '#0f172a',
   
   // Neutral
-  background: '#ffffff',
-  surface: '#f8fafc',
+  background: '#f5f7ff',
+  surface: '#ffffff',
   card: '#ffffff',
-  cardSecondary: '#f1f5f9',
+  cardSecondary: '#eef2ff',
+
+  // Brand/Page gradients (aligned with website)
+  pageGradientStart: '#f5f7ff',
+  pageGradientEnd: '#eef2ff',
+  brandGradientStart: '#0891b2',
+  brandGradientEnd: '#2563eb',
+  glowCyan: 'rgba(14, 165, 233, 0.16)',
+  glowBlue: 'rgba(59, 130, 246, 0.14)',
   
   // Text
   text: '#1e293b',
@@ -58,7 +66,7 @@ export const lightColors = {
   
   // Specific Components
   tabBar: '#ffffff',
-  header: '#ffffff',
+  header: '#f5f7ff',
   input: '#ffffff',
 };
 
@@ -88,10 +96,18 @@ export const darkColors = {
   gray900: '#f8fafc',
   
   // Neutral
-  background: '#0f172a',
-  surface: '#1e293b',
-  card: '#1e293b',
-  cardSecondary: '#334155',
+  background: '#020617',
+  surface: '#0f172a',
+  card: '#0f172a',
+  cardSecondary: '#1e293b',
+
+  // Brand/Page gradients (aligned with website dark treatment)
+  pageGradientStart: '#020617',
+  pageGradientEnd: '#0f172a',
+  brandGradientStart: '#06b6d4',
+  brandGradientEnd: '#3b82f6',
+  glowCyan: 'rgba(6, 182, 212, 0.22)',
+  glowBlue: 'rgba(59, 130, 246, 0.2)',
   
   // Text
   text: '#f1f5f9',
@@ -120,9 +136,9 @@ export const darkColors = {
   divider: '#334155',
   
   // Specific Components
-  tabBar: '#1e293b',
-  header: '#1e293b',
-  input: '#334155',
+  tabBar: '#0f172a',
+  header: '#020617',
+  input: '#1e293b',
 };
 
 // Default export (will be overridden by theme context)

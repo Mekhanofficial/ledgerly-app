@@ -117,14 +117,14 @@ export const createReportHTML = ({
       <meta charset="UTF-8">
       <title>${title}</title>
       <style>
-        body { font-family: 'Helvetica', Arial, sans-serif; padding: 20px; color: #1f2937; }
-        h1 { color: #4f46e5; margin-bottom: 4px; }
+        body { font-family: 'Helvetica', Arial, sans-serif; padding: 20px; color: #0f172a; background: #f5f7ff; }
+        h1 { color: #0ea5e9; margin-bottom: 4px; }
         .section { margin-top: 24px; }
-        .label { font-weight: 600; color: #6b7280; }
+        .label { font-weight: 600; color: #64748b; }
         .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-top: 20px; }
-        .card { border-radius: 12px; border: 1px solid #e5e7eb; padding: 14px; background: #fff; }
+        .card { border-radius: 12px; border: 1px solid #e2e8f0; padding: 14px; background: #ffffff; }
         .value { font-size: 20px; font-weight: 700; margin-top: 6px; }
-        .footer { margin-top: 40px; color: #6b7280; font-size: 12px; text-align: right; }
+        .footer { margin-top: 40px; color: #64748b; font-size: 12px; text-align: right; }
       </style>
     </head>
     <body>

@@ -61,9 +61,9 @@ export default function SplashScreen() {
       {/* Animated Background Gradient */}
       <LinearGradient
         colors={[
-          colors.primary500 + '20', // Changed from primary to primary500
+          colors.pageGradientStart,
           colors.background,
-          colors.primary500 + '10', // Changed from primary to primary500
+          colors.pageGradientEnd,
         ]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
@@ -78,7 +78,7 @@ export default function SplashScreen() {
             style={[
               styles.decorativeCircle,
               {
-                backgroundColor: colors.primary500 + '10', // Changed from primary to primary500
+                backgroundColor: i % 2 === 0 ? colors.glowCyan : colors.glowBlue,
                 transform: [
                   { scale: scaleAnim },
                   { rotate: rotate },
@@ -133,7 +133,7 @@ export default function SplashScreen() {
             style={[
               styles.underline,
               {
-                backgroundColor: colors.primary500, // Changed from primary to primary500
+                backgroundColor: colors.primary500,
                 transform: [{ scaleX: scaleAnim }],
               },
             ]}
@@ -171,7 +171,7 @@ export default function SplashScreen() {
                 style={[
                   styles.loadingDot,
                   {
-                    backgroundColor: colors.primary500, // Changed from primary to primary500
+                    backgroundColor: colors.primary500,
                   },
                 ]}
               />
@@ -182,7 +182,7 @@ export default function SplashScreen() {
 
       {/* Bottom Gradient */}
       <LinearGradient
-        colors={['transparent', colors.primary500 + '10']} // Changed from primary to primary500
+        colors={['transparent', colors.glowCyan]}
         style={styles.bottomGradient}
         pointerEvents="none"
       />

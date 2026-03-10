@@ -48,41 +48,48 @@ const PLAN_FEATURES: Record<string, string[]> = {
     '100 invoices per month',
     'Unlimited receipts',
     'Basic reporting',
-    'Email support',
     'Single user',
-    'Mobile app access',
-    'Standard templates only',
+    'Access to 5 Standard templates',
+    'No recurring invoices',
+    'No API access',
+    'No team access',
   ],
   professional: [
     'Unlimited invoices',
     'Advanced reporting',
     '5 team members',
-    'Priority support',
     'Recurring invoices',
     'Inventory management',
     'Customer database',
     'Multi-currency',
-    'Standard + Premium templates',
+    'Limited API access',
+    'All Standard + Premium templates',
   ],
   enterprise: [
     'Everything in Professional',
     '20 team members',
-    'Full API access',
+    'Full API',
     'White-label branding',
     'Custom workflows',
     'Dedicated manager',
     'SLA guarantee',
-    'All templates (Elite included)',
+    'All templates (Standard + Premium + Elite)',
   ],
 };
 
 const PLAN_ORDER = ['starter', 'professional', 'enterprise'];
 
 const FALLBACK_PLANS: Plan[] = [
-  { id: 'starter', name: 'Starter', monthlyPrice: 9, yearlyPrice: Number((9 * 12 * 0.8).toFixed(2)) },
-  { id: 'professional', name: 'Professional', monthlyPrice: 29, yearlyPrice: Number((29 * 12 * 0.8).toFixed(2)) },
-  { id: 'enterprise', name: 'Enterprise', monthlyPrice: 79, yearlyPrice: Number((79 * 12 * 0.8).toFixed(2)) },
+  { id: 'starter', name: 'Starter', monthlyPrice: 2000, yearlyPrice: 24000 },
+  { id: 'professional', name: 'Professional', monthlyPrice: 7000, yearlyPrice: 84000 },
+  { id: 'enterprise', name: 'Enterprise', monthlyPrice: 30000, yearlyPrice: 360000 },
 ];
+
+const ADD_ON_PRICING = {
+  whiteLabel: { monthly: 5000, yearly: 60000 },
+  extraSeats: { monthly: 1500, yearly: 18000 },
+  analytics: { monthly: 3000, yearly: 36000 },
+};
 
 const formatDate = (value?: string) => {
   if (!value) return 'Not set';
@@ -95,12 +102,19 @@ const formatDate = (value?: string) => {
   });
 };
 
-const formatCurrency = (value: number, currency = 'USD') => {
+const formatCurrency = (value: number, currency = 'NGN') => {
   if (!Number.isFinite(value)) return String(value);
   try {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(value);
-  } catch (error) {
-    return `${currency} ${value.toFixed(2)}`;
+    const locale = currency === 'NGN' ? 'en-NG' : 'en-US';
+    return new Intl.NumberFormat(locale, {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(value);
+  } catch {
+    const formatted = Number(value).toLocaleString('en-NG');
+    return currency === 'NGN' ? `₦${formatted}` : `${currency} ${formatted}`;
   }
 };
 
@@ -214,7 +228,8 @@ export default function BillingPlanScreen() {
     setAddOns((prev) => ({ ...prev, extraSeats: Number.isFinite(nextValue) ? nextValue : 0 }));
   };
 
-  const currency = billing?.currency || 'USD';
+  const currency = billing?.currency || 'NGN';
+  const addOnCycleLabel = billingCycle === 'yearly' ? 'per year' : 'per month';
   const statusLabel = String(currentSubscription?.status || 'active').replace(/_/g, ' ');
   const statusKey = String(currentSubscription?.status || 'active').toLowerCase();
   const statusColor =
@@ -423,6 +438,14 @@ export default function BillingPlanScreen() {
                     <Text style={[styles.addOnSubtitle, { color: colors.textTertiary }]}>
                       Remove Ledgerly branding (Professional+)
                     </Text>
+                    <Text style={[styles.addOnPrice, { color: colors.textSecondary }]}>
+                      {formatCurrency(
+                        billingCycle === 'yearly'
+                          ? ADD_ON_PRICING.whiteLabel.yearly
+                          : ADD_ON_PRICING.whiteLabel.monthly,
+                        currency
+                      )} {addOnCycleLabel}
+                    </Text>
                   </View>
                   <Switch
                     value={addOns.whiteLabelEnabled}
@@ -450,7 +473,15 @@ export default function BillingPlanScreen() {
                   <View style={styles.addOnInfo}>
                     <Text style={[styles.addOnTitle, { color: colors.text }]}>Extra seats</Text>
                     <Text style={[styles.addOnSubtitle, { color: colors.textTertiary }]}>
-                      $5 per additional seat
+                      Add team members beyond your plan
+                    </Text>
+                    <Text style={[styles.addOnPrice, { color: colors.textSecondary }]}>
+                      {formatCurrency(
+                        billingCycle === 'yearly'
+                          ? ADD_ON_PRICING.extraSeats.yearly
+                          : ADD_ON_PRICING.extraSeats.monthly,
+                        currency
+                      )} {billingCycle === 'yearly' ? 'per year per seat' : 'per month per seat'}
                     </Text>
                   </View>
                   <TextInput
@@ -481,7 +512,15 @@ export default function BillingPlanScreen() {
                   <View style={styles.addOnInfo}>
                     <Text style={[styles.addOnTitle, { color: colors.text }]}>Analytics AI</Text>
                     <Text style={[styles.addOnSubtitle, { color: colors.textTertiary }]}>
-                      $10 per month
+                      AI insights and forecasting
+                    </Text>
+                    <Text style={[styles.addOnPrice, { color: colors.textSecondary }]}>
+                      {formatCurrency(
+                        billingCycle === 'yearly'
+                          ? ADD_ON_PRICING.analytics.yearly
+                          : ADD_ON_PRICING.analytics.monthly,
+                        currency
+                      )} {addOnCycleLabel}
                     </Text>
                   </View>
                   <Switch
@@ -711,6 +750,11 @@ const styles = StyleSheet.create({
   addOnSubtitle: {
     fontSize: 12,
     marginTop: 4,
+  },
+  addOnPrice: {
+    fontSize: 12,
+    marginTop: 6,
+    fontWeight: '600',
   },
   addOnNote: {
     fontSize: 12,

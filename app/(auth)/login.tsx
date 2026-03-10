@@ -76,7 +76,7 @@ export default function LoginScreen() {
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={styles.background} pointerEvents="none">
         <LinearGradient
-          colors={[colors.primary50, colors.background, colors.primary100]}
+          colors={[colors.pageGradientStart, colors.background, colors.pageGradientEnd]}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={StyleSheet.absoluteFill}
@@ -85,7 +85,7 @@ export default function LoginScreen() {
           style={[
             styles.glow,
             {
-              backgroundColor: colors.primary500 + '22',
+              backgroundColor: colors.glowCyan,
               top: -60,
               right: -40,
             },
@@ -95,7 +95,7 @@ export default function LoginScreen() {
           style={[
             styles.glowSmall,
             {
-              backgroundColor: colors.info + '18',
+              backgroundColor: colors.glowBlue,
               bottom: 80,
               left: -30,
             },
@@ -117,7 +117,7 @@ export default function LoginScreen() {
             <View style={styles.logoContainer}>
               <View style={[styles.logoGlow, { backgroundColor: colors.primary500 + '25' }]} />
               <LinearGradient
-                colors={[colors.primary500, colors.primary600]}
+                colors={[colors.brandGradientStart, colors.brandGradientEnd]}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
                 style={styles.logoGradient}
@@ -160,10 +160,22 @@ export default function LoginScreen() {
                     <Text style={[styles.errorActionText, { color: colors.error }]}>Dismiss</Text>
                   </TouchableOpacity>
                   {error.includes('No account found') && (
-                    <TouchableOpacity onPress={() => router.push('/(auth)/signup')}>
+                    <TouchableOpacity onPress={() => router.push('/plan-onboarding')}>
                       <Text style={[styles.errorActionText, { color: colors.primary500 }]}>Create account</Text>
                     </TouchableOpacity>
                   )}
+                  {error.toLowerCase().includes('verify your email') && email.trim() ? (
+                    <TouchableOpacity
+                      onPress={() =>
+                        router.push({
+                          pathname: '/verify-email',
+                          params: { email: email.trim().toLowerCase() },
+                        } as never)
+                      }
+                    >
+                      <Text style={[styles.errorActionText, { color: colors.primary500 }]}>Verify email</Text>
+                    </TouchableOpacity>
+                  ) : null}
                 </View>
               </View>
             </View>
@@ -209,7 +221,7 @@ export default function LoginScreen() {
                 <Text style={[styles.label, { color: colors.textSecondary }]}>Password</Text>
                 <TouchableOpacity
                   disabled={isLoading}
-                  onPress={() => router.push('/(auth)/forgot-password')}
+                  onPress={() => router.push('/forgot-password')}
                 >
                   <Text style={[styles.forgotPassword, { color: colors.primary500 }]}>
                     Forgot Password?
@@ -255,7 +267,7 @@ export default function LoginScreen() {
               disabled={isLoading}
             >
               <LinearGradient
-                colors={[colors.primary500, colors.primary600]}
+                colors={[colors.brandGradientStart, colors.brandGradientEnd]}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
                 style={styles.loginButtonGradient}
@@ -294,7 +306,7 @@ export default function LoginScreen() {
               <Text style={[styles.footerText, { color: colors.textSecondary }]}>
                 Don&apos;t have an account?{' '}
               </Text>
-              <TouchableOpacity onPress={() => router.push('/(auth)/signup')} disabled={isLoading}>
+              <TouchableOpacity onPress={() => router.push('/plan-onboarding')} disabled={isLoading}>
                 <Text style={[styles.footerLink, { color: colors.primary500 }]}>
                   Sign up
                 </Text>

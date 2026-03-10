@@ -15,7 +15,21 @@ export const initializeSubscriptionPayment = async (payload: { plan: string; bil
   return response;
 };
 
-export const initializeTemplatePayment = async (payload: { templateId?: string; type?: 'lifetime' }) => {
+export const initializePublicSubscriptionPayment = async (payload: {
+  plan: string;
+  billingCycle: 'monthly' | 'yearly';
+  email: string;
+}) => {
+  const response = await apiPost('/api/v1/payments/initialize-public-subscription', payload);
+  return response;
+};
+
+export const initializeTemplatePayment = async (payload: {
+  templateId?: string;
+  type?: 'template' | 'bundle' | 'lifetime';
+  bundleTier?: 'premium' | 'elite' | 'all';
+  tier?: 'premium' | 'elite' | 'all';
+}) => {
   const response = await apiPost('/api/v1/payments/initialize-template', payload);
   return response;
 };

@@ -24,9 +24,72 @@ import {
   uploadDocument,
 } from '@/services/documentService';
 
-const FREE_DOCUMENT_LIMIT = 5;
-const MAX_DOCUMENT_SIZE_MB = 50;
-const MAX_DOCUMENT_SIZE_BYTES = MAX_DOCUMENT_SIZE_MB * 1024 * 1024;
+const MB = 1024 * 1024;
+const GB = 1024 * 1024 * 1024;
+
+const DOCUMENT_RULES = {
+  starter: {
+    maxDocuments: 50,
+    maxStorageBytes: 250 * MB,
+    maxFileSizeBytes: 5 * MB,
+    pickerTypes: ['application/pdf', 'image/jpeg', 'image/png'],
+    allowedExtensions: new Set(['pdf', 'jpg', 'jpeg', 'png']),
+    imageAllowed: true,
+  },
+  professional: {
+    maxDocuments: 1000,
+    maxStorageBytes: 5 * GB,
+    maxFileSizeBytes: 15 * MB,
+    pickerTypes: [
+      'application/pdf',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'text/csv',
+      'image/*',
+    ],
+    allowedExtensions: new Set(['pdf', 'docx', 'xlsx', 'csv', 'jpg', 'jpeg', 'png', 'webp', 'gif']),
+    imageAllowed: true,
+  },
+  enterprise: {
+    maxDocuments: 10000,
+    maxStorageBytes: 50 * GB,
+    maxFileSizeBytes: 50 * MB,
+    pickerTypes: [
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'text/csv',
+      'text/plain',
+      'application/vnd.ms-powerpoint',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      'image/*',
+    ],
+    allowedExtensions: new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'txt', 'ppt', 'pptx', 'jpg', 'jpeg', 'png', 'webp', 'gif']),
+    imageAllowed: true,
+  },
+} as const;
+
+const getFileExtension = (name?: string) => {
+  const fileName = String(name || '').trim().toLowerCase();
+  const index = fileName.lastIndexOf('.');
+  if (index < 0) return '';
+  return fileName.slice(index + 1);
+};
+
+const isFileAllowedForPlan = (
+  planId: 'starter' | 'professional' | 'enterprise',
+  fileType?: string,
+  fileName?: string
+) => {
+  const rule = DOCUMENT_RULES[planId];
+  const mime = String(fileType || '').toLowerCase();
+  const extension = getFileExtension(fileName);
+  if (rule.allowedExtensions.has(extension)) return true;
+  if (rule.imageAllowed && mime.startsWith('image/')) return true;
+  return false;
+};
 
 const normalizePlanId = (plan?: string) => {
   if (!plan) return 'starter';
@@ -57,15 +120,21 @@ export default function DocumentsScreen() {
   const subscriptionStatus = String(user?.business?.subscription?.status || 'active').toLowerCase();
   const planId = subscriptionStatus === 'expired'
     ? 'starter'
-    : normalizePlanId(user?.business?.subscription?.plan);
-  const isFreePlan = planId === 'starter';
+    : normalizePlanId(user?.business?.subscription?.plan) as 'starter' | 'professional' | 'enterprise';
+  const planRule = DOCUMENT_RULES[planId] || DOCUMENT_RULES.starter;
 
-  const remainingUploads = useMemo(() => {
-    if (!isFreePlan) return null;
-    return Math.max(0, FREE_DOCUMENT_LIMIT - documents.length);
-  }, [documents.length, isFreePlan]);
+  const totalStorageUsed = useMemo(
+    () => documents.reduce((sum, doc) => sum + (Number(doc.size) || 0), 0),
+    [documents]
+  );
+  const remainingUploads = useMemo(
+    () => Math.max(0, planRule.maxDocuments - documents.length),
+    [documents.length, planRule.maxDocuments]
+  );
+  const hasStorageCapacity = totalStorageUsed < planRule.maxStorageBytes;
+  const canUploadMore = documents.length < planRule.maxDocuments && hasStorageCapacity;
 
-  const canUploadMore = !isFreePlan || documents.length < FREE_DOCUMENT_LIMIT;
+  const maxDocumentSizeMb = Math.floor(planRule.maxFileSizeBytes / MB);
 
   const loadDocuments = async () => {
     setLoading(true);
@@ -93,14 +162,46 @@ export default function DocumentsScreen() {
     type: 'document' | 'scan'
   ) => {
     if (!canUploadMore) {
-      Alert.alert('Upgrade required', 'Free plan limit reached. Upgrade to upload more documents.');
+      const storageLimitText = formatFileSize(planRule.maxStorageBytes);
+      Alert.alert(
+        'Upgrade required',
+        `Plan limit reached. ${planRule.maxDocuments} documents and ${storageLimitText} storage are included on your current plan.`
+      );
       return;
     }
 
-    if ((file.size ?? 0) > MAX_DOCUMENT_SIZE_BYTES) {
+    const fileSize = Number(file.size) || 0;
+    if (fileSize > 0 && totalStorageUsed + fileSize > planRule.maxStorageBytes) {
       showMessage({
         message: 'Upload failed',
-        description: `File is too large. Maximum supported size is ${MAX_DOCUMENT_SIZE_MB}MB.`,
+        description: `Storage limit exceeded. Available storage: ${formatFileSize(
+          Math.max(0, planRule.maxStorageBytes - totalStorageUsed)
+        )}.`,
+        type: 'danger',
+        icon: 'danger',
+      });
+      return;
+    }
+
+    if (!isFileAllowedForPlan(planId, file.type, file.name)) {
+      showMessage({
+        message: 'Upload failed',
+        description:
+          planId === 'starter'
+            ? 'Starter supports PDF, JPG, and PNG files only.'
+            : planId === 'professional'
+            ? 'Professional supports PDF, DOCX, XLSX, CSV, and image files.'
+            : 'File type is not supported for your plan.',
+        type: 'danger',
+        icon: 'danger',
+      });
+      return;
+    }
+
+    if (fileSize > planRule.maxFileSizeBytes) {
+      showMessage({
+        message: 'Upload failed',
+        description: `File is too large. Maximum supported size is ${maxDocumentSizeMb}MB.`,
         type: 'danger',
         icon: 'danger',
       });
@@ -132,17 +233,7 @@ export default function DocumentsScreen() {
   const handlePickDocument = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
-        type: [
-          'application/pdf',
-          'application/msword',
-          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-          'application/vnd.ms-excel',
-          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-          'text/csv',
-          'text/plain',
-          'application/vnd.ms-powerpoint',
-          'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-        ],
+        type: planRule.pickerTypes as unknown as string[],
         copyToCacheDirectory: true,
       });
 
@@ -232,16 +323,26 @@ export default function DocumentsScreen() {
       <View style={styles.header}>
         <Text style={[styles.title, { color: colors.text }]}>Documents</Text>
         <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-          Upload business documents and scans up to {MAX_DOCUMENT_SIZE_MB}MB each.
+          Upload business documents and scans up to {maxDocumentSizeMb}MB each.
         </Text>
-        {isFreePlan && (
-          <View style={[styles.limitBadge, { backgroundColor: colors.warning + '20' }]}>
-            <Ionicons name="alert-circle" size={16} color={colors.warning} />
-            <Text style={[styles.limitText, { color: colors.warning }]}>
-              {remainingUploads} of {FREE_DOCUMENT_LIMIT} free uploads remaining
-            </Text>
-          </View>
-        )}
+        <View
+          style={[
+            styles.limitBadge,
+            { backgroundColor: canUploadMore ? colors.primary50 : colors.warning + '20' },
+          ]}
+        >
+          <Ionicons
+            name={canUploadMore ? 'information-circle-outline' : 'alert-circle'}
+            size={16}
+            color={canUploadMore ? colors.primary500 : colors.warning}
+          />
+          <Text style={[styles.limitText, { color: canUploadMore ? colors.primary500 : colors.warning }]}>
+            {documents.length}/{planRule.maxDocuments} docs • {formatFileSize(totalStorageUsed)}/{formatFileSize(planRule.maxStorageBytes)}
+          </Text>
+        </View>
+        <Text style={[styles.planHint, { color: colors.textTertiary }]}>
+          {remainingUploads} uploads remaining on {planId.charAt(0).toUpperCase() + planId.slice(1)} plan
+        </Text>
       </View>
 
       <View style={styles.actions}>
@@ -340,6 +441,10 @@ const styles = StyleSheet.create({
   subtitle: {
     marginTop: 6,
     fontSize: 14,
+  },
+  planHint: {
+    marginTop: 8,
+    fontSize: 12,
   },
   limitBadge: {
     marginTop: 12,

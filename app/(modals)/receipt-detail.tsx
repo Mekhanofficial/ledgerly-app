@@ -23,6 +23,8 @@ import * as Sharing from 'expo-sharing';
 import { buildTemplateVariables, resolveTemplateTheme } from '@/utils/templateStyles';
 import { buildTemplateDecorations } from '@/utils/templateDecorations';
 import { resolveTemplateStyleVariant } from '@/utils/templateStyleVariants';
+import { getWatermarkText, shouldShowWatermark } from '@/utils/brandingPlan';
+import { buildPdfEmailAttachmentFromHtml } from '@/utils/emailPdfAttachment';
 import { ROLE_GROUPS } from '@/utils/roleAccess';
 import { useRoleGuard } from '@/hooks/useRoleGuard';
 
@@ -31,7 +33,7 @@ const { width: screenWidth } = Dimensions.get('window');
 export default function ReceiptDetailScreen() {
   const { colors } = useTheme();
   const { id } = useLocalSearchParams();
-  const { getReceiptById, deleteReceipt, updateReceipt, selectedReceiptTemplate, templates } = useData();
+  const { getReceiptById, deleteReceipt, updateReceipt, sendReceiptEmail, selectedReceiptTemplate, templates } = useData();
   const { user } = useUser();
   const { canAccess } = useRoleGuard(ROLE_GROUPS.reports);
   const { width: windowWidth } = useWindowDimensions();
@@ -161,7 +163,12 @@ export default function ReceiptDetailScreen() {
     const date = formatDate(receipt.createdAt);
     const paymentLabel = receipt.paymentMethod ? receipt.paymentMethod.toUpperCase() : 'CASH';
 
-    const templateTheme = resolveTemplateTheme(templateForReceipt);
+    const templateThemeBase = resolveTemplateTheme(templateForReceipt);
+    const templateTheme = {
+      ...templateThemeBase,
+      showWatermark: shouldShowWatermark(user?.business?.subscription),
+      watermarkText: getWatermarkText(user?.business?.subscription),
+    };
     const templateVariables = buildTemplateVariables(templateTheme);
     const templateVariant = resolveTemplateStyleVariant(
       receipt.templateStyle || templateForReceipt?.id,
@@ -183,8 +190,9 @@ export default function ReceiptDetailScreen() {
       ? 'background-image: radial-gradient(var(--accent) 1px, transparent 1px); background-size: 14px 14px;'
       : '';
     const watermarkMarkup = templateTheme.showWatermark
-      ? `<div class="watermark">${templateTheme.watermarkText}</div>`
+      ? `<div class="watermark-footer">${templateTheme.watermarkText}</div>`
       : '';
+    const brandingFooter = templateTheme.showWatermark ? 'Powered by Ledgerly' : '';
     const companyNameColor = templateForReceipt?.layout?.hasGradientEffects ? 'var(--header-text)' : 'var(--primary)';
     const companyInfoColor = templateForReceipt?.layout?.hasGradientEffects ? 'var(--header-text)' : 'var(--muted)';
 
@@ -368,14 +376,14 @@ export default function ReceiptDetailScreen() {
             border-left: 4px solid var(--secondary);
             font-size: 12px;
           }
-          .watermark {
+          .watermark-footer {
             position: fixed;
-            top: 40%;
+            bottom: 14px;
             left: 50%;
-            transform: translate(-50%, -50%) rotate(-20deg);
-            font-size: 64px;
-            color: rgba(0, 0, 0, 0.06);
-            font-weight: bold;
+            transform: translateX(-50%);
+            font-size: 11px;
+            color: rgba(107, 114, 128, 0.65);
+            font-weight: 500;
             pointer-events: none;
           }
           @media print {
@@ -501,6 +509,7 @@ export default function ReceiptDetailScreen() {
               <p>Thank you for your business!</p>
               <p>Please retain this receipt for your records.</p>
               <p>Items are non-refundable. Store credit only within 30 days with receipt.</p>
+              ${brandingFooter ? `<p>${brandingFooter}</p>` : ''}
               <p>(c) ${new Date().getFullYear()} ${companyName}. All rights reserved.</p>
             </div>
           </div>
@@ -600,16 +609,47 @@ export default function ReceiptDetailScreen() {
   };
 
   const handleResendReceipt = () => {
+    if (!receipt.customerEmail) {
+      Alert.alert('Missing Customer Email', 'Add a customer email before resending this receipt.');
+      return;
+    }
+
     Alert.alert(
       'Resend Receipt',
-      'Resend this receipt to customer email?',
+      `Resend this receipt to ${receipt.customerEmail}?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Resend',
           onPress: async () => {
-            // Simulate sending email
-            Alert.alert('Success', 'Receipt has been sent to customer email');
+            try {
+              const resolvedTemplateStyle =
+                receipt.templateStyle ||
+                templateForReceipt?.templateStyle ||
+                templateForReceipt?.id ||
+                'standard';
+              const htmlContent = generateReceiptHTML();
+              const pdfAttachment = await buildPdfEmailAttachmentFromHtml({
+                html: htmlContent,
+                fileName: `receipt-${receipt.number}.pdf`,
+                source: 'frontend-mobile-receipt-template',
+              });
+              if (!pdfAttachment) {
+                throw new Error('Unable to generate receipt PDF from the selected template.');
+              }
+
+              await sendReceiptEmail(receipt.id, {
+                customerEmail: receipt.customerEmail,
+                templateStyle: resolvedTemplateStyle,
+                pdfAttachment,
+              });
+              Alert.alert('Success', `Receipt sent to ${receipt.customerEmail}`);
+            } catch (error) {
+              Alert.alert(
+                'Error',
+                (error as Error)?.message || 'Failed to send receipt email.'
+              );
+            }
           },
         },
       ]

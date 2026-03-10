@@ -153,7 +153,7 @@ export default function SecurityScreen() {
             Security Score
           </Text>
           <View style={styles.scoreContainer}>
-            <View style={styles.scoreCircle}>
+            <View style={[styles.scoreCircle, { borderColor: colors.border }]}>
               <Text style={[styles.scoreValue, { color: colors.text }]}>
                 {getSecurityScore()}%
               </Text>
@@ -365,7 +365,7 @@ export default function SecurityScreen() {
                 </Text>
               </View>
             </View>
-            <View style={styles.valueContainer}>
+            <View style={[styles.valueContainer, { backgroundColor: colors.borderLight }]}>
               <Text style={[styles.valueText, { color: colors.text }]}>
                 {securitySettings.requirePasswordChange === 0 
                   ? 'Never' 
@@ -487,7 +487,7 @@ const styles = StyleSheet.create({
     height: 80,
     borderRadius: 40,
     borderWidth: 4,
-    borderColor: '#E0E0E0',
+    borderColor: 'transparent',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -566,7 +566,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 8,
-    backgroundColor: 'rgba(0,0,0,0.05)',
   },
   valueText: {
     fontSize: 14,

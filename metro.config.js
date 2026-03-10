@@ -14,5 +14,14 @@ config.resolver.blockList = [
   new RegExp(`${backendPath}[/\\\\].*`),
   new RegExp(`${websitePath}[/\\\\].*`),
 ];
+config.transformer = {
+  ...config.transformer,
+  getTransformOptions: async () => ({
+    transform: {
+      experimentalImportSupport: false,
+      inlineRequires: true,
+    },
+  }),
+};
 
 module.exports = config;

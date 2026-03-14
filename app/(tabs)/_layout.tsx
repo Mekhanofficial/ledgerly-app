@@ -7,7 +7,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import CustomHeader from '@/components/CustomHeader';
 import { StatusBar } from 'expo-status-bar';
 import { useUser } from '@/context/UserContext';
-import { hasRole, ROLE_GROUPS } from '@/utils/roleAccess';
+import { hasRole, normalizeRole, ROLE_GROUPS } from '@/utils/roleAccess';
+import { resolvePlanId } from '@/utils/brandingPlan';
 
 const MoreOptionsModal = lazy(() => import('@/components/MoreOptionsModal'));
 
@@ -18,11 +19,18 @@ export default function TabLayout() {
   const { colors, isDark } = useTheme();
   const { user, loading } = useUser();
   const segments = useSegments();
+  const normalizedRole = normalizeRole(user?.role);
+  const planId = resolvePlanId(
+    user?.business?.subscription?.plan,
+    user?.business?.subscription?.status
+  );
+  const hasRecurringFeature = normalizedRole === 'super_admin' || ['professional', 'enterprise'].includes(planId);
+  const hasInventoryFeature = normalizedRole === 'super_admin' || ['professional', 'enterprise'].includes(planId);
 
   const canAccessDashboard = hasRole(user?.role, ROLE_GROUPS.app);
   const canAccessInvoices = hasRole(user?.role, ROLE_GROUPS.app);
-  const canAccessRecurring = hasRole(user?.role, ROLE_GROUPS.business);
-  const canAccessInventory = hasRole(user?.role, ROLE_GROUPS.business);
+  const canAccessRecurring = hasRole(user?.role, ROLE_GROUPS.business) && hasRecurringFeature;
+  const canAccessInventory = hasRole(user?.role, ROLE_GROUPS.business) && hasInventoryFeature;
 
   const allowedTabNames = useMemo(() => {
     const tabs: string[] = [];

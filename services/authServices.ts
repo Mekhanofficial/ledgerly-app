@@ -42,6 +42,10 @@ export interface User {
   currencySymbol?: string;
   profileImage?: string;
   businessLogo?: string;
+  plan?: string;
+  subscriptionStatus?: string;
+  trialEndsAt?: string;
+  subscriptionEndsAt?: string;
   permissions?: Record<string, any>;
   createdAt?: string;
   updatedAt?: string;
@@ -129,6 +133,10 @@ const mapUser = (user: any): User => {
     currencyCode: business?.currency,
     profileImage: resolveMediaUrl(user?.profileImage),
     businessLogo: business?.logo,
+    plan: user?.plan || business?.subscription?.plan,
+    subscriptionStatus: user?.subscriptionStatus || business?.subscription?.status,
+    trialEndsAt: user?.trialEndsAt || business?.subscription?.trialEndsAt,
+    subscriptionEndsAt: user?.subscriptionEndsAt || business?.subscription?.currentPeriodEnd,
     permissions: user?.permissions,
     createdAt: user?.createdAt,
     updatedAt: user?.updatedAt,

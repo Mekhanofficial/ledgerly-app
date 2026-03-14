@@ -23,6 +23,8 @@ import { showMessage } from 'react-native-flash-message';
 import TemplatePreviewModal from '@/components/templates/TemplatePreviewModal';
 import { ROLE_GROUPS } from '@/utils/roleAccess';
 import { useRoleGuard } from '@/hooks/useRoleGuard';
+import { useUser } from '@/context/UserContext';
+import { resolvePlanId } from '@/utils/brandingPlan';
 
 const { width, height } = Dimensions.get('window');
 const isTablet = width >= 768;
@@ -78,6 +80,7 @@ const RECURRING_FREQUENCY_OPTIONS: Array<{ label: string; value: RecurringFreque
 export default function CreateInvoiceScreen() {
   const { colors } = useTheme();
   const { canAccess } = useRoleGuard(ROLE_GROUPS.business);
+  const { user } = useUser();
   const {
     createInvoice,
     customers,
@@ -115,6 +118,11 @@ export default function CreateInvoiceScreen() {
   const [taxAmountOverride, setTaxAmountOverride] = useState('');
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [upgradeMessage, setUpgradeMessage] = useState('');
+  const planId = resolvePlanId(
+    user?.business?.subscription?.plan || user?.plan,
+    user?.business?.subscription?.status || user?.subscriptionStatus
+  );
+  const hasRecurringFeature = user?.role === 'super_admin' || ['professional', 'enterprise'].includes(planId);
 
   const roundMoney = (value: number) => {
     const parsed = Number(value);
@@ -186,7 +194,7 @@ export default function CreateInvoiceScreen() {
       payload.isTaxOverridden = true;
     }
 
-    if (isRecurring) {
+    if (isRecurring && hasRecurringFeature) {
       payload.recurring = {
         isRecurring: true,
         frequency: recurringFrequency,
@@ -235,6 +243,29 @@ export default function CreateInvoiceScreen() {
       Alert.alert('Error', errorMessage);
     }
   };
+
+  const handleRecurringToggle = (nextValue: boolean) => {
+    if (nextValue && !hasRecurringFeature) {
+      const message = 'Recurring invoices are available on Professional and Enterprise plans.';
+      showMessage({
+        message: 'Upgrade Required',
+        description: message,
+        type: 'warning',
+        icon: 'warning',
+      });
+      setUpgradeMessage(message);
+      setShowUpgradeModal(true);
+      setIsRecurring(false);
+      return;
+    }
+    setIsRecurring(nextValue);
+  };
+
+  useEffect(() => {
+    if (!hasRecurringFeature && isRecurring) {
+      setIsRecurring(false);
+    }
+  }, [hasRecurringFeature, isRecurring]);
 
   const handleSaveDraft = async () => {
     if (!selectedCustomerId) {
@@ -917,11 +948,16 @@ export default function CreateInvoiceScreen() {
               </View>
               <Switch
                 value={isRecurring}
-                onValueChange={setIsRecurring}
+                onValueChange={handleRecurringToggle}
                 trackColor={{ false: colors.border, true: colors.primary500 }}
                 thumbColor={colors.background}
               />
             </View>
+            {!hasRecurringFeature && (
+              <Text style={[styles.recurringSummaryText, { color: colors.warning }]}>
+                Recurring invoices are on Professional and Enterprise plans.
+              </Text>
+            )}
             {isRecurring && (
               <>
                 <View style={styles.frequencyList}>

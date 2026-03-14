@@ -23,6 +23,7 @@ import {
 import { getBuiltInTemplates, mergeTemplates } from '@/utils/templateCatalog';
 import { initializeTemplatePayment } from '@/services/billingService';
 import { formatCurrency, resolveCurrencyCode } from '@/utils/currency';
+import { resolvePlanId } from '@/utils/brandingPlan';
 import type { EmailPdfAttachmentPayload } from '@/utils/emailPdfAttachment';
 
 export interface Category {
@@ -806,6 +807,17 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     if (!isAuthenticated) return;
     setLoading(true);
     try {
+      const normalizedRole = String(user?.role || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[\s-]+/g, '_');
+      const planId = resolvePlanId(
+        user?.business?.subscription?.plan,
+        user?.business?.subscription?.status
+      );
+      const hasInventoryFeature = normalizedRole === 'super_admin'
+        || ['professional', 'enterprise'].includes(planId);
+
       const unwrapList = (payload: any) => {
         if (!payload) return [];
         const data = payload.data ?? payload;
@@ -847,10 +859,10 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
       };
 
       const requests = [
-        { key: 'categories', call: fetchAllPages('/api/v1/categories', {}, 200) },
-        { key: 'suppliers', call: fetchAllPages('/api/v1/suppliers', {}, 200) },
+        { key: 'categories', call: hasInventoryFeature ? fetchAllPages('/api/v1/categories', {}, 200) : Promise.resolve([]) },
+        { key: 'suppliers', call: hasInventoryFeature ? fetchAllPages('/api/v1/suppliers', {}, 200) : Promise.resolve([]) },
         { key: 'customers', call: fetchAllPages('/api/v1/customers', {}, 200) },
-        { key: 'products', call: fetchAllPages('/api/v1/products', {}, 200) },
+        { key: 'products', call: hasInventoryFeature ? fetchAllPages('/api/v1/products', {}, 200) : Promise.resolve([]) },
         { key: 'invoices', call: fetchAllPages('/api/v1/invoices', {}, 200) },
         { key: 'receipts', call: fetchAllPages('/api/v1/receipts', {}, 200) },
         { key: 'templates', call: apiGet('/api/v1/templates') },
@@ -915,6 +927,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     mergeTemplates,
     loadFallbackTemplates,
     refreshUser,
+    user,
   ]);
 
   useEffect(() => {

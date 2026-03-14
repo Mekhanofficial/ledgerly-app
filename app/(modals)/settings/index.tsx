@@ -21,12 +21,18 @@ import { useData } from '@/context/DataContext';
 import * as Print from 'expo-print';
 import { useUser } from '@/context/UserContext';
 import { loadLocalCurrency, syncPreferencesFromBackend } from '@/services/preferencesService';
+import { resolvePlanId } from '@/utils/brandingPlan';
 
 export default function SettingsScreen() {
   const { colors, isDark, theme, setTheme, toggleTheme } = useTheme();
   const { customers, inventory, invoices, receipts, categories } = useData();
   const { logoutUser, user } = useUser();
   const canManageTeam = user?.role === 'super_admin' || user?.role === 'admin';
+  const planId = resolvePlanId(
+    user?.business?.subscription?.plan || user?.plan,
+    user?.business?.subscription?.status || user?.subscriptionStatus
+  );
+  const hasTeamFeature = user?.role === 'super_admin' || ['professional', 'enterprise'].includes(planId);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [biometricEnabled, setBiometricEnabled] = useState(true);
   const [autoBackupEnabled, setAutoBackupEnabled] = useState(true);
@@ -340,15 +346,17 @@ export default function SettingsScreen() {
           action: () => router.push('/(modals)/profile'),
           showChevron: true,
         },
-        {
-          icon: 'people-outline',
-          label: 'Team Management',
-          description: canManageTeam
-            ? 'Invite teammates and manage roles'
-            : 'Admin access required',
-          action: () => router.push('/(modals)/settings/team'),
-          showChevron: true,
-        },
+        ...(hasTeamFeature
+          ? [{
+            icon: 'people-outline',
+            label: 'Team Management',
+            description: canManageTeam
+              ? 'Invite teammates and manage roles'
+              : 'Admin access required',
+            action: () => router.push('/(modals)/settings/team'),
+            showChevron: true,
+          }]
+          : []),
         {
           icon: 'shield-checkmark-outline',
           label: 'Security',

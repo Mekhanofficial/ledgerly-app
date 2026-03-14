@@ -4,10 +4,19 @@ import { useMemo } from 'react';
 import { useTheme } from '@/context/ThemeContext';
 import { ROLE_GROUPS } from '@/utils/roleAccess';
 import { useRoleGuard } from '@/hooks/useRoleGuard';
+import { useUser } from '@/context/UserContext';
+import { resolvePlanId } from '@/utils/brandingPlan';
 
 export default function SettingsLayout() {
   const { colors } = useTheme();
   const pathname = usePathname();
+  const { user } = useUser();
+  const isTeamRoute = pathname.includes('/settings/team');
+  const planId = resolvePlanId(
+    user?.business?.subscription?.plan || user?.plan,
+    user?.business?.subscription?.status || user?.subscriptionStatus
+  );
+  const hasTeamFeature = user?.role === 'super_admin' || ['professional', 'enterprise'].includes(planId);
 
   const allowedRoles = useMemo(() => {
     if (pathname.includes('/settings/templates')) return ROLE_GROUPS.business;
@@ -18,7 +27,7 @@ export default function SettingsLayout() {
 
   const { canAccess } = useRoleGuard(allowedRoles);
 
-  if (!canAccess) {
+  if (!canAccess || (isTeamRoute && !hasTeamFeature)) {
     return null;
   }
 

@@ -18,6 +18,7 @@ import { useTheme } from '@/context/ThemeContext';
 import { apiGet, apiPost, apiPut } from '@/services/apiClient';
 import { useUser } from '@/context/UserContext';
 import { showMessage } from 'react-native-flash-message';
+import { resolvePlanId } from '@/utils/brandingPlan';
 
 type TeamMember = {
   _id: string;
@@ -75,6 +76,11 @@ export default function TeamManagementScreen() {
   const { colors } = useTheme();
   const { user } = useUser();
   const canManageTeam = user?.role === 'super_admin' || user?.role === 'admin';
+  const planId = resolvePlanId(
+    user?.business?.subscription?.plan || user?.plan,
+    user?.business?.subscription?.status || user?.subscriptionStatus
+  );
+  const hasTeamFeature = user?.role === 'super_admin' || ['professional', 'enterprise'].includes(planId);
   const canManageRoles = user?.role === 'super_admin';
 
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
@@ -100,13 +106,13 @@ export default function TeamManagementScreen() {
   );
 
   useEffect(() => {
-    if (!canManageTeam) {
+    if (!canManageTeam || !hasTeamFeature) {
       setLoadingTeam(false);
       return;
     }
     fetchTeam();
     fetchCustomers();
-  }, [canManageTeam]);
+  }, [canManageTeam, hasTeamFeature]);
 
   const fetchTeam = async () => {
     setLoadingTeam(true);
@@ -348,6 +354,21 @@ export default function TeamManagementScreen() {
   const visibleTeamMembers = canManageRoles
     ? teamMembers
     : teamMembers.filter((member) => member?.role !== 'super_admin');
+
+  if (!hasTeamFeature) {
+    return (
+      <ScrollView style={[styles.container, { backgroundColor: colors.background }]}>
+        <View style={styles.content}>
+          <View style={[styles.noticeCard, { backgroundColor: colors.surface }]}>
+            <Ionicons name="lock-closed-outline" size={20} color={colors.warning} />
+            <Text style={[styles.noticeText, { color: colors.textSecondary }]}>
+              Team management is available on Professional and Enterprise plans.
+            </Text>
+          </View>
+        </View>
+      </ScrollView>
+    );
+  }
 
   const activeCount = visibleTeamMembers.filter((member) => member.invitationAccepted && member.isActive).length;
   const invitedCount = visibleTeamMembers.length - activeCount;

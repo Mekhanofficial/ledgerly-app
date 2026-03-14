@@ -3,7 +3,8 @@ import { useTheme } from '@/context/ThemeContext';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useUser } from '@/context/UserContext';
-import { hasRole, ROLE_GROUPS } from '@/utils/roleAccess';
+import { hasRole, normalizeRole, ROLE_GROUPS } from '@/utils/roleAccess';
+import { resolvePlanId } from '@/utils/brandingPlan';
 import {
   Alert,
   Modal,
@@ -36,13 +37,21 @@ export default function MoreOptionsModal({
   const { colors, toggleTheme, isDark } = useTheme();
   const { user, logoutUser } = useUser();
   const role = user?.role;
+  const normalizedRole = normalizeRole(role);
+  const planId = resolvePlanId(
+    user?.business?.subscription?.plan,
+    user?.business?.subscription?.status
+  );
+  const hasRecurringFeature = normalizedRole === 'super_admin' || ['professional', 'enterprise'].includes(planId);
+  const hasLiveChatFeature = normalizedRole === 'super_admin' || planId === 'enterprise';
   const canAccessReceipts = hasRole(role, ROLE_GROUPS.reports);
   const canAccessReports = hasRole(role, ROLE_GROUPS.reports);
   const canAccessCustomers = hasRole(role, ROLE_GROUPS.business);
   const canAccessDocuments = hasRole(role, ROLE_GROUPS.business);
-  const canAccessRecurring = hasRole(role, ROLE_GROUPS.business);
+  const canAccessRecurring = hasRole(role, ROLE_GROUPS.business) && hasRecurringFeature;
   const canAccessSettings = hasRole(role, ROLE_GROUPS.settings);
   const canAccessSupport = hasRole(role, ROLE_GROUPS.support);
+  const canAccessLiveChat = canAccessSupport && hasLiveChatFeature;
 
   const handleLogout = () => {
     Alert.alert(
@@ -130,6 +139,10 @@ export default function MoreOptionsModal({
             label: 'Help & Support',
             screen: '/(modals)/help',
           },
+        ]
+      : []),
+    ...(canAccessLiveChat
+      ? [
           {
             id: 'live-chat',
             icon: 'chatbubble-ellipses-outline',

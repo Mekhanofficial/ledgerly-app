@@ -41,6 +41,7 @@ export interface User {
   currencyCode?: string;
   currencySymbol?: string;
   profileImage?: string;
+  businessLogo?: string;
   permissions?: Record<string, any>;
   createdAt?: string;
   updatedAt?: string;
@@ -77,6 +78,13 @@ const resolveMediaUrl = (path?: string) => {
   if (path.startsWith('http')) return path;
   const normalized = path.startsWith('/') ? path.slice(1) : path;
   return `${API_BASE_URL}/${normalized}`;
+};
+
+const isLocalMediaAsset = (value?: string) => {
+  if (typeof value !== 'string') return false;
+  return value.startsWith('file://')
+    || value.startsWith('content://')
+    || value.startsWith('ph://');
 };
 
 const splitName = (name?: string) => {
@@ -120,6 +128,7 @@ const mapUser = (user: any): User => {
     timezone: business?.timezone,
     currencyCode: business?.currency,
     profileImage: resolveMediaUrl(user?.profileImage),
+    businessLogo: business?.logo,
     permissions: user?.permissions,
     createdAt: user?.createdAt,
     updatedAt: user?.updatedAt,
@@ -341,7 +350,12 @@ export async function isAdmin(): Promise<boolean> {
 
 export async function updateUserProfile(
   _userId: string,
-  updates: Partial<User> & { profileImage?: string; password?: string }
+  updates: Partial<User> & {
+    profileImage?: string;
+    businessLogo?: string;
+    removeBusinessLogo?: boolean;
+    password?: string;
+  }
 ): Promise<AuthResponse> {
   try {
     const formData = new FormData();
@@ -364,11 +378,7 @@ export async function updateUserProfile(
     }
 
     const profileImage = updates.profileImage;
-    const isLocalImage =
-      typeof profileImage === 'string' &&
-      (profileImage.startsWith('file://') ||
-        profileImage.startsWith('content://') ||
-        profileImage.startsWith('ph://'));
+    const isLocalImage = isLocalMediaAsset(profileImage);
     if (isLocalImage) {
       formData.append('profileImage', {
         uri: profileImage,
@@ -395,8 +405,38 @@ export async function updateUserProfile(
     if (updates.country) {
       businessPayload.address = { country: updates.country };
     }
-    if (Object.keys(businessPayload).length > 0) {
-      await apiPut('/api/v1/business', businessPayload);
+    const businessLogo = updates.businessLogo;
+    const isLocalBusinessLogo = isLocalMediaAsset(businessLogo);
+    const shouldRemoveBusinessLogo = Boolean(updates.removeBusinessLogo);
+    if (Object.keys(businessPayload).length > 0 || isLocalBusinessLogo || shouldRemoveBusinessLogo) {
+      if (isLocalBusinessLogo || shouldRemoveBusinessLogo) {
+        const businessFormData = new FormData();
+        if (businessPayload.name) {
+          businessFormData.append('name', businessPayload.name);
+        }
+        if (businessPayload.currency) {
+          businessFormData.append('currency', businessPayload.currency);
+        }
+        if (businessPayload.timezone) {
+          businessFormData.append('timezone', businessPayload.timezone);
+        }
+        if (businessPayload.address) {
+          businessFormData.append('address', JSON.stringify(businessPayload.address));
+        }
+        if (shouldRemoveBusinessLogo) {
+          businessFormData.append('logo', '');
+        }
+        if (isLocalBusinessLogo) {
+          businessFormData.append('logo', {
+            uri: businessLogo,
+            name: `business-logo-${Date.now()}.jpg`,
+            type: 'image/jpeg',
+          } as any);
+        }
+        await apiPut('/api/v1/business', businessFormData);
+      } else {
+        await apiPut('/api/v1/business', businessPayload);
+      }
     }
 
     const meResponse: any = await apiGet('/api/v1/auth/me');

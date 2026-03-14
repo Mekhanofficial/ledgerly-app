@@ -19,6 +19,7 @@ import { useTheme } from '@/context/ThemeContext';
 import { useUser } from '../../context/UserContext';
 import { router } from 'expo-router';
 import { showMessage } from 'react-native-flash-message';
+import { canUseBusinessLogo } from '@/utils/brandingPlan';
 
 export default function ProfileScreen() {
   const { colors } = useTheme();
@@ -36,6 +37,9 @@ export default function ProfileScreen() {
   });
   const [uploadingImage, setUploadingImage] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(user?.profileImage || null);
+  const [selectedBusinessLogo, setSelectedBusinessLogo] = useState<string | null>(user?.businessLogo || user?.business?.logo || null);
+  const [businessLogoRemoved, setBusinessLogoRemoved] = useState(false);
+  const canUploadBusinessLogo = canUseBusinessLogo(user || undefined);
 
   const handleSignOut = async () => {
     try {
@@ -47,7 +51,7 @@ export default function ProfileScreen() {
     }
   };
 
-  const pickImage = async () => {
+  const pickMediaImage = async (onSelect: (uri: string) => void) => {
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       
@@ -64,9 +68,7 @@ export default function ProfileScreen() {
       });
 
       if (!result.canceled && result.assets[0].uri) {
-        setSelectedImage(result.assets[0].uri);
-        // In a real app, you would upload this to a server
-        // For now, we'll simulate by updating the user object
+        onSelect(result.assets[0].uri);
       }
     } catch (error) {
       console.error('Image picker error:', error);
@@ -79,11 +81,39 @@ export default function ProfileScreen() {
     }
   };
 
+  const pickImage = async () => {
+    await pickMediaImage((uri) => {
+      setSelectedImage(uri);
+    });
+  };
+
+  const pickBusinessLogo = async () => {
+    if (!canUploadBusinessLogo) {
+      Alert.alert(
+        'Upgrade Required',
+        'Business logos are available on Professional and Enterprise plans.'
+      );
+      return;
+    }
+
+    await pickMediaImage((uri) => {
+      setSelectedBusinessLogo(uri);
+      setBusinessLogoRemoved(false);
+    });
+  };
+
+  const handleRemoveBusinessLogo = () => {
+    setSelectedBusinessLogo(null);
+    setBusinessLogoRemoved(true);
+  };
+
   const handleSaveChanges = async () => {
     try {
       const updates = {
         ...editedData,
         profileImage: selectedImage || undefined,
+        businessLogo: selectedBusinessLogo || undefined,
+        removeBusinessLogo: businessLogoRemoved,
       };
 
       await updateProfile(updates);
@@ -114,6 +144,8 @@ export default function ProfileScreen() {
         currencyCode: user?.currencyCode || '',
       });
       setSelectedImage(user?.profileImage || null);
+      setSelectedBusinessLogo(user?.businessLogo || user?.business?.logo || null);
+      setBusinessLogoRemoved(false);
     }
     setIsEditing(!isEditing);
   };
@@ -169,13 +201,58 @@ export default function ProfileScreen() {
             )}
           </TouchableOpacity>
           
-          {uploadingImage && (
-            <View style={styles.uploadingOverlay}>
-              <ActivityIndicator color="white" size="large" />
-              <Text style={styles.uploadingText}>Uploading...</Text>
-            </View>
+        {uploadingImage && (
+          <View style={styles.uploadingOverlay}>
+            <ActivityIndicator color="white" size="large" />
+            <Text style={styles.uploadingText}>Uploading...</Text>
+          </View>
+        )}
+
+        <View style={styles.businessLogoSection}>
+          <Text style={[styles.businessLogoLabel, { color: colors.textSecondary }]}>Business Logo</Text>
+          <TouchableOpacity
+            onPress={isEditing ? pickBusinessLogo : undefined}
+            disabled={!isEditing}
+            style={[
+              styles.businessLogoCard,
+              {
+                backgroundColor: colors.surface,
+                borderColor: colors.border,
+              }
+            ]}
+          >
+            {selectedBusinessLogo ? (
+              <Image source={{ uri: selectedBusinessLogo }} style={styles.businessLogoImage} resizeMode="contain" />
+            ) : (
+              <View style={[styles.businessLogoPlaceholder, { backgroundColor: colors.primary100 }]}>
+                <Ionicons name="business-outline" size={28} color={colors.primary500} />
+                <Text style={[styles.businessLogoHint, { color: colors.primary500 }]}>
+                  {isEditing ? 'Tap to add logo' : 'No logo uploaded'}
+                </Text>
+              </View>
+            )}
+            {isEditing && (
+              <View style={[styles.businessLogoOverlay, { backgroundColor: colors.overlay + 'CC' }]}>
+                <Ionicons name="camera" size={24} color="white" />
+                <Text style={styles.editImageText}>
+                  {selectedBusinessLogo ? 'Change Logo' : 'Upload Logo'}
+                </Text>
+              </View>
+            )}
+          </TouchableOpacity>
+          {!canUploadBusinessLogo && (
+            <Text style={[styles.planHint, { color: colors.primary500 }]}>
+              Available on Professional and Enterprise. Starter users can remove an existing logo.
+            </Text>
+          )}
+          {isEditing && selectedBusinessLogo && (
+            <TouchableOpacity onPress={handleRemoveBusinessLogo} style={styles.removeLogoButton}>
+              <Ionicons name="trash-outline" size={16} color={colors.error} />
+              <Text style={[styles.removeLogoText, { color: colors.error }]}>Remove Logo</Text>
+            </TouchableOpacity>
           )}
         </View>
+      </View>
 
         {/* Profile Info - Editable when in edit mode */}
         {isEditing ? (
@@ -475,6 +552,67 @@ const styles = StyleSheet.create({
     color: 'white',
     marginTop: 8,
     fontSize: 14,
+    fontWeight: '600',
+  },
+  businessLogoSection: {
+    width: '100%',
+    marginTop: 20,
+    alignItems: 'center',
+  },
+  businessLogoLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 10,
+  },
+  businessLogoCard: {
+    width: 180,
+    height: 110,
+    borderRadius: 18,
+    borderWidth: 1,
+    overflow: 'hidden',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  businessLogoImage: {
+    width: '100%',
+    height: '100%',
+  },
+  businessLogoPlaceholder: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+  },
+  businessLogoHint: {
+    fontSize: 12,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  businessLogoOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  planHint: {
+    fontSize: 12,
+    textAlign: 'center',
+    marginTop: 10,
+    paddingHorizontal: 20,
+  },
+  removeLogoButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 10,
+  },
+  removeLogoText: {
+    fontSize: 13,
     fontWeight: '600',
   },
   profileInfoContainer: {

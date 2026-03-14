@@ -24,7 +24,7 @@ import { buildTemplateVariables, resolveTemplateTheme } from '@/utils/templateSt
 import TemplatePreviewModal from '@/components/templates/TemplatePreviewModal';
 import { buildTemplateDecorations } from '@/utils/templateDecorations';
 import { resolveTemplateStyleVariant } from '@/utils/templateStyleVariants';
-import { getWatermarkText, shouldShowWatermark } from '@/utils/brandingPlan';
+import { getBusinessLogoUrl, getWatermarkText, shouldShowWatermark } from '@/utils/brandingPlan';
 import { formatCurrency, resolveCurrencyCode } from '@/utils/currency';
 import { buildPdfEmailAttachmentFromHtml } from '@/utils/emailPdfAttachment';
 import { ROLE_GROUPS } from '@/utils/roleAccess';
@@ -93,6 +93,7 @@ export default function CreateReceiptScreen() {
     `${user?.firstName || ''} ${user?.lastName || ''}`.trim() ||
     'Ledgerly Inc.'
   );
+  const businessLogoUrl = getBusinessLogoUrl(user || undefined);
   const companyContacts = [
     user?.phoneNumber,
     user?.email,
@@ -286,6 +287,9 @@ export default function CreateReceiptScreen() {
     const brandingFooter = templateTheme.showWatermark ? 'Powered by Ledgerly' : '';
     const companyNameColor = resolvedTemplate?.layout?.hasGradientEffects ? 'var(--header-text)' : 'var(--primary)';
     const companyInfoColor = resolvedTemplate?.layout?.hasGradientEffects ? 'var(--header-text)' : 'var(--muted)';
+    const businessLogoMarkup = businessLogoUrl
+      ? `<img src="${businessLogoUrl}" alt="${companyName} logo" style="display:block;max-width:140px;max-height:56px;width:auto;height:auto;object-fit:contain;margin:0 0 12px auto;" />`
+      : '';
 
     return `
       <!DOCTYPE html>
@@ -484,6 +488,7 @@ export default function CreateReceiptScreen() {
             <div class="header-card">
               <div class="header-row">
                 <div>
+                  ${businessLogoMarkup}
                   <div class="company-name">${companyName}</div>
                   <div class="company-info">${companyContactMarkup}</div>
                 </div>
@@ -646,8 +651,8 @@ export default function CreateReceiptScreen() {
           fileName: `receipt-${receiptId}.pdf`,
           source: 'frontend-mobile-receipt-template',
         });
-        if (!pdfAttachment) {
-          throw new Error('Unable to generate receipt PDF from the selected template.');
+        if (!pdfAttachment?.data) {
+          throw new Error('Unable to generate frontend receipt PDF attachment.');
         }
         await sendReceiptEmail(receiptId, {
           customerEmail: resolvedEmail,

@@ -1290,11 +1290,6 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   const sendInvoiceEmail = useCallback(
     async (invoiceId: string, payload: InvoiceEmailPayload = {}) => {
       const existingInvoice = invoices.find((invoice) => invoice.id === invoiceId);
-      if (!payload.pdfAttachment?.data) {
-        throw new Error(
-          'Unable to send invoice email without a frontend template PDF attachment.'
-        );
-      }
       const templateStyle =
         payload.templateStyle ||
         existingInvoice?.templateStyle ||
@@ -1318,6 +1313,9 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
       const resolvedEmailMessage = payload.emailMessage ?? templateMatch?.emailMessage ?? '';
       if (resolvedEmailSubject) body.emailSubject = resolvedEmailSubject;
       if (resolvedEmailMessage) body.emailMessage = resolvedEmailMessage;
+      if (!payload.pdfAttachment?.data) {
+        throw new Error('Frontend invoice PDF attachment is required before sending email.');
+      }
       body.pdfAttachment = payload.pdfAttachment;
 
       const response: any = await apiPost(`/api/v1/invoices/${invoiceId}/send`, body);
@@ -1350,11 +1348,6 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
 
   const sendReceiptEmail = useCallback(
     async (receiptId: string, payload: ReceiptEmailPayload = {}) => {
-      if (!payload.pdfAttachment?.data) {
-        throw new Error(
-          'Unable to send receipt email without a frontend template PDF attachment.'
-        );
-      }
       const existingReceipt = receipts.find((receipt) => receipt.id === receiptId);
       const templateStyle =
         payload.templateStyle ||
@@ -1367,6 +1360,9 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
       const body: Record<string, any> = {};
       if (payload.customerEmail) body.customerEmail = payload.customerEmail;
       if (templateStyle) body.templateStyle = templateStyle;
+      if (!payload.pdfAttachment?.data) {
+        throw new Error('Frontend receipt PDF attachment is required before sending email.');
+      }
       body.pdfAttachment = payload.pdfAttachment;
       await apiPost(`/api/v1/receipts/${receiptId}/email`, body);
 

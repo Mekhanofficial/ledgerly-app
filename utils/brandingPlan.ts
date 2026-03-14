@@ -1,4 +1,16 @@
 export type PlanId = 'starter' | 'professional' | 'enterprise';
+type BrandingUserLike = {
+  logo?: string;
+  plan?: string;
+  status?: string;
+  business?: {
+    logo?: string;
+    subscription?: {
+      plan?: string;
+      status?: string;
+    };
+  };
+};
 
 const normalizePlanId = (value?: string): PlanId => {
   const plan = String(value || '').trim().toLowerCase();
@@ -21,3 +33,21 @@ export const shouldShowWatermark = (subscription?: { plan?: string; status?: str
 
 export const getWatermarkText = (subscription?: { plan?: string; status?: string }) =>
   shouldShowWatermark(subscription) ? 'Powered by Ledgerly' : '';
+
+const resolveBrandingSubscription = (value?: BrandingUserLike) => (
+  value?.business?.subscription || {
+    plan: value?.plan,
+    status: value?.status,
+  }
+);
+
+export const canUseBusinessLogo = (value?: BrandingUserLike) =>
+  resolvePlanId(
+    resolveBrandingSubscription(value)?.plan,
+    resolveBrandingSubscription(value)?.status
+  ) !== 'starter';
+
+export const getBusinessLogoUrl = (value?: BrandingUserLike) => {
+  if (!canUseBusinessLogo(value)) return '';
+  return String(value?.business?.logo || value?.logo || '').trim();
+};

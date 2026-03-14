@@ -21,7 +21,7 @@ import { getTemplateById } from '@/utils/templateCatalog';
 import { buildTemplateVariables, resolveTemplateTheme } from '@/utils/templateStyles';
 import { buildTemplateDecorations } from '@/utils/templateDecorations';
 import { resolveTemplateStyleVariant } from '@/utils/templateStyleVariants';
-import { getWatermarkText, shouldShowWatermark } from '@/utils/brandingPlan';
+import { getBusinessLogoUrl, getWatermarkText, shouldShowWatermark } from '@/utils/brandingPlan';
 import { formatCurrency, getCurrencySymbol, resolveCurrencyCode } from '@/utils/currency';
 import { buildPdfEmailAttachmentFromHtml } from '@/utils/emailPdfAttachment';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -109,6 +109,7 @@ export default function InvoiceDetailScreen() {
     `${user?.firstName || ''} ${user?.lastName || ''}`.trim() ||
     'Ledgerly Inc.'
   );
+  const businessLogoUrl = getBusinessLogoUrl(user || undefined);
   const companyDetails = [
     user?.phoneNumber,
     user?.email,
@@ -248,6 +249,9 @@ export default function InvoiceDetailScreen() {
     const templateLabel = (resolvedTemplate?.name || resolvedTemplate?.id || 'Template').toUpperCase();
     const paymentTerms = resolvedTemplate?.paymentTerms || 'net-30';
     const currency = resolvedTemplate?.currency || currencyCode || 'USD';
+    const businessLogoMarkup = businessLogoUrl
+      ? `<img src="${businessLogoUrl}" alt="${companyName} logo" style="display:block;max-width:140px;max-height:60px;width:auto;height:auto;object-fit:contain;margin:0 0 12px auto;" />`
+      : '';
 
     const customerMarkup = invoice.customer
       ? `
@@ -319,6 +323,7 @@ export default function InvoiceDetailScreen() {
                     </div>
                   </div>
                   <div style="text-align: right;">
+                    ${businessLogoMarkup}
                     <div style="font-size: 18px; font-weight: bold; color: ${templateTheme.primary}; margin-bottom: 10px;">
                       ${companyName}
                     </div>
@@ -534,8 +539,8 @@ ${invoice.notes ? `\nNotes:\n${invoice.notes}` : ''}
               fileName: `invoice-${invoice.number}.pdf`,
               source: 'frontend-mobile-invoice-template',
             });
-            if (!pdfAttachment) {
-              throw new Error('Unable to generate invoice PDF from the selected template.');
+            if (!pdfAttachment?.data) {
+              throw new Error('Unable to generate frontend invoice PDF attachment.');
             }
 
             await sendInvoiceEmail(invoice.id, {

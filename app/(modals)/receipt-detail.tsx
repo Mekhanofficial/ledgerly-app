@@ -11,6 +11,7 @@ import {
   Platform,
   Dimensions,
   useWindowDimensions,
+  Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/context/ThemeContext';
@@ -23,7 +24,7 @@ import * as Sharing from 'expo-sharing';
 import { buildTemplateVariables, resolveTemplateTheme } from '@/utils/templateStyles';
 import { buildTemplateDecorations } from '@/utils/templateDecorations';
 import { resolveTemplateStyleVariant } from '@/utils/templateStyleVariants';
-import { getWatermarkText, shouldShowWatermark } from '@/utils/brandingPlan';
+import { getBusinessLogoUrl, getWatermarkText, shouldShowWatermark } from '@/utils/brandingPlan';
 import { buildPdfEmailAttachmentFromHtml } from '@/utils/emailPdfAttachment';
 import { ROLE_GROUPS } from '@/utils/roleAccess';
 import { useRoleGuard } from '@/hooks/useRoleGuard';
@@ -65,6 +66,7 @@ export default function ReceiptDetailScreen() {
     `${user?.firstName || ''} ${user?.lastName || ''}`.trim() ||
     'Ledgerly Inc.'
   );
+  const businessLogoUrl = getBusinessLogoUrl(user || undefined);
   const companyDetails = [
     user?.phoneNumber,
     user?.email,
@@ -195,6 +197,9 @@ export default function ReceiptDetailScreen() {
     const brandingFooter = templateTheme.showWatermark ? 'Powered by Ledgerly' : '';
     const companyNameColor = templateForReceipt?.layout?.hasGradientEffects ? 'var(--header-text)' : 'var(--primary)';
     const companyInfoColor = templateForReceipt?.layout?.hasGradientEffects ? 'var(--header-text)' : 'var(--muted)';
+    const businessLogoMarkup = businessLogoUrl
+      ? `<img src="${businessLogoUrl}" alt="${companyName} logo" style="display:block;max-width:140px;max-height:56px;width:auto;height:auto;object-fit:contain;margin:0 0 12px auto;" />`
+      : '';
 
     return `
       <!DOCTYPE html>
@@ -423,6 +428,7 @@ export default function ReceiptDetailScreen() {
             <div class="header-card">
               <div class="header-row">
                 <div>
+                  ${businessLogoMarkup}
                   <div class="company-name">${companyName}</div>
                   <div class="company-info">${companyContactMarkup}</div>
                 </div>
@@ -634,8 +640,8 @@ export default function ReceiptDetailScreen() {
                 fileName: `receipt-${receipt.number}.pdf`,
                 source: 'frontend-mobile-receipt-template',
               });
-              if (!pdfAttachment) {
-                throw new Error('Unable to generate receipt PDF from the selected template.');
+              if (!pdfAttachment?.data) {
+                throw new Error('Unable to generate frontend receipt PDF attachment.');
               }
 
               await sendReceiptEmail(receipt.id, {
@@ -708,6 +714,9 @@ export default function ReceiptDetailScreen() {
             padding: isSmallScreen ? 16 : 20,
           }
         ]}>
+          {businessLogoUrl ? (
+            <Image source={{ uri: businessLogoUrl }} style={styles.companyLogo} resizeMode="contain" />
+          ) : null}
           <Text style={[styles.companyTitle, { color: colors.text }]} numberOfLines={1}>
             {companyName}
           </Text>
@@ -1333,6 +1342,11 @@ const styles = StyleSheet.create({
   companySection: {
     borderRadius: 16,
     borderWidth: 1,
+  },
+  companyLogo: {
+    width: 140,
+    height: 56,
+    marginBottom: 12,
   },
   companyTitle: {
     fontSize: 18,

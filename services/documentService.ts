@@ -38,6 +38,9 @@ const normalizeDocument = (doc: any): DocumentRecord => ({
 export const buildDocumentUrl = (doc: DocumentRecord) => {
   const filePath = doc.filePath;
   if (!filePath) return undefined;
+  if (/^https?:\/\//i.test(String(filePath))) {
+    return String(filePath);
+  }
   return `${API_BASE_URL}/${filePath.replace(/^\/+/, '')}`;
 };
 

@@ -14,7 +14,7 @@ interface UserContextType {
   registerUser: (userData: RegisterPayload) => Promise<AuthResponse>;
   verifyEmailOtp: (email: string, otp: string) => Promise<AuthResponse>;
   resendEmailOtp: (email: string) => Promise<AuthResponse>;
-  updateProfile: (updates: Partial<User>) => Promise<User | null>;
+  updateProfile: (updates: Partial<User> & { removeBusinessLogo?: boolean }) => Promise<User | null>;
   refreshUser: () => Promise<User | null>;
   isAdmin: () => Promise<boolean>;
   checkAuth: () => Promise<boolean>;
@@ -159,7 +159,7 @@ export const UserProvider: React.FC<UserProviderProps> = ({ children }) => {
   }, []);
 
   // Update user profile
-  const updateProfile = useCallback(async (updates: Partial<User>): Promise<User | null> => {
+  const updateProfile = useCallback(async (updates: Partial<User> & { removeBusinessLogo?: boolean }): Promise<User | null> => {
     try {
       if (!user) throw new Error('No user logged in');
       

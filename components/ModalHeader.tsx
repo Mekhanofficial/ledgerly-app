@@ -52,7 +52,13 @@ export default function ModalHeader({
       </View>
 
       <View style={styles.right}>
-        {right}
+        {typeof right === 'string' || typeof right === 'number' ? (
+          <Text style={[styles.rightText, { color: colors.text }]} numberOfLines={1}>
+            {right}
+          </Text>
+        ) : (
+          right ?? null
+        )}
       </View>
     </View>
   );
@@ -87,5 +93,9 @@ const styles = StyleSheet.create({
   right: {
     width: 40,
     alignItems: 'flex-end',
+  },
+  rightText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
 });

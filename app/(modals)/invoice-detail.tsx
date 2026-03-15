@@ -149,6 +149,7 @@ export default function InvoiceDetailScreen() {
     : (taxRate ? subtotal * (taxRate / 100) : 0);
   const showTax = taxAmount > 0 || taxRate > 0;
   const balanceDue = invoice.amount - invoice.paidAmount;
+  const hasInvoiceNotes = Boolean(String(invoice.notes || '').trim());
 
   const handleRecordPayment = async () => {
     if (!paymentAmount || parseFloat(paymentAmount) <= 0) {
@@ -720,7 +721,7 @@ ${invoice.notes ? `\nNotes:\n${invoice.notes}` : ''}
         </View>
 
         {/* Notes */}
-        {invoice.notes && (
+        {hasInvoiceNotes && (
           <View style={[styles.section, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>Notes</Text>
             <Text style={[styles.notesText, { color: colors.text }]}>{invoice.notes}</Text>

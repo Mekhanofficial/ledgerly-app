@@ -41,6 +41,7 @@ export interface User {
   currencyCode?: string;
   currencySymbol?: string;
   profileImage?: string;
+  avatarUrl?: string;
   businessLogo?: string;
   plan?: string;
   subscriptionStatus?: string;
@@ -106,7 +107,7 @@ const mapBusiness = (business: any): UserBusiness | undefined => {
     email: business.email,
     phone: business.phone,
     address: business.address,
-    logo: resolveMediaUrl(business.logo),
+    logo: resolveMediaUrl(business.logoUrl || business.logo),
     timezone: business.timezone,
     currency: business.currency,
     subscription: business.subscription,
@@ -116,6 +117,7 @@ const mapBusiness = (business: any): UserBusiness | undefined => {
 const mapUser = (user: any): User => {
   const { firstName, lastName } = splitName(user?.name);
   const business = typeof user?.business === 'object' ? mapBusiness(user.business) : undefined;
+  const resolvedAvatarUrl = resolveMediaUrl(user?.avatarUrl || user?.profileImage);
 
   return {
     id: user?._id || user?.id,
@@ -131,7 +133,8 @@ const mapUser = (user: any): User => {
     country: business?.address?.country,
     timezone: business?.timezone,
     currencyCode: business?.currency,
-    profileImage: resolveMediaUrl(user?.profileImage),
+    profileImage: resolvedAvatarUrl,
+    avatarUrl: resolvedAvatarUrl,
     businessLogo: business?.logo,
     plan: user?.plan || business?.subscription?.plan,
     subscriptionStatus: user?.subscriptionStatus || business?.subscription?.status,

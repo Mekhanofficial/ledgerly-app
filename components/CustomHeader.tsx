@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from 'react';
 import { useTheme } from '@/context/ThemeContext';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -39,6 +40,16 @@ export default function CustomHeader({
   const headerContentHeight = 64;
 
   const unreadCount = notifications.filter(n => !n.read).length;
+  const businessLogoUri = useMemo(
+    () => String(user?.businessLogo || user?.business?.logo || '').trim(),
+    [user?.businessLogo, user?.business?.logo]
+  );
+  const profileImageUri = useMemo(
+    () => String(user?.avatarUrl || user?.profileImage || '').trim(),
+    [user?.avatarUrl, user?.profileImage]
+  );
+  const [profileImageErrored, setProfileImageErrored] = useState(false);
+  const [businessLogoErrored, setBusinessLogoErrored] = useState(false);
 
   const handleProfilePress =
     onProfilePress || (() => router.push('/(modals)/profile'));
@@ -46,14 +57,44 @@ export default function CustomHeader({
   const handleNotificationPress =
     onNotificationPress || (() => router.push('/(modals)/notification'));
 
+  useEffect(() => {
+    setProfileImageErrored(false);
+  }, [profileImageUri]);
+
+  useEffect(() => {
+    setBusinessLogoErrored(false);
+  }, [businessLogoUri]);
+
+  const renderBusinessLogo = () => {
+    if (businessLogoUri && !businessLogoErrored) {
+      return (
+        <Image
+          source={{ uri: businessLogoUri }}
+          style={styles.businessLogo}
+          resizeMode="contain"
+          onError={() => setBusinessLogoErrored(true)}
+        />
+      );
+    }
+
+    return (
+      <Image
+        source={require('@/assets/images/ledgerly-logo.png')}
+        style={styles.brandLogoFallback}
+        resizeMode="contain"
+      />
+    );
+  };
+
   const renderProfileImage = () => {
     const initials = user?.firstName?.charAt(0)?.toUpperCase() || 'U';
 
-    if (user?.profileImage) {
+    if (profileImageUri && !profileImageErrored) {
       return (
         <Image
-          source={{ uri: user.profileImage }}
+          source={{ uri: profileImageUri }}
           style={[styles.profileImage, { borderColor: colors.primary100 }]}
+          onError={() => setProfileImageErrored(true)}
         />
       );
     } else {
@@ -120,17 +161,8 @@ export default function CustomHeader({
         >
           {/* Left */}
           <View style={styles.logoContainer}>
-            <View
-              style={[
-                styles.logoBadge,
-                { backgroundColor: colors.primary100 },
-              ]}
-            >
-              <Image
-                source={require('@/assets/images/ledgerly-logo.png')}
-                style={styles.logoImage}
-                resizeMode="contain"
-              />
+            <View style={styles.logoSurface}>
+              {renderBusinessLogo()}
             </View>
           </View>
 
@@ -213,16 +245,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-  logoBadge: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+  logoSurface: {
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  logoImage: {
-    width: 26,
-    height: 26,
+  businessLogo: {
+    width: '100%',
+    height: '100%',
+  },
+  brandLogoFallback: {
+    width: 30,
+    height: 30,
   },
   rightContainer: {
     flexDirection: 'row',

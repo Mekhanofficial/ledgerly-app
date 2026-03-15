@@ -14,11 +14,54 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/context/ThemeContext';
 import { useData, Template } from '@/context/DataContext';
-import ModalHeader from '@/components/ModalHeader';
 import TemplatePreviewModal from '@/components/templates/TemplatePreviewModal';
 
 type TemplateScope = 'invoice' | 'receipt';
 type TemplateTierTab = 'all' | 'STANDARD' | 'PREMIUM' | 'ELITE' | 'CUSTOM';
+
+const SCOPE_TOKENS: Record<TemplateScope, string[]> = {
+  invoice: ['invoice', 'invoices'],
+  receipt: ['receipt', 'receipts'],
+};
+
+type ScopedTemplate = Template & {
+  scope?: string;
+  documentType?: string;
+  templateType?: string;
+  supportedDocuments?: string[];
+  supportedScopes?: string[];
+};
+
+const normalizeScopeToken = (value: unknown) =>
+  String(value ?? '').trim().toLowerCase();
+
+const parseScopeTokens = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) => parseScopeTokens(entry));
+  }
+
+  const normalized = normalizeScopeToken(value);
+  if (!normalized) return [];
+
+  return normalized
+    .split(/[,\s|/]+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+};
+
+const templateSupportsScope = (template: Template, scope: TemplateScope) => {
+  const scoped = template as ScopedTemplate;
+  const explicitTokens = new Set<string>([
+    ...parseScopeTokens(scoped.scope),
+    ...parseScopeTokens(scoped.documentType),
+    ...parseScopeTokens(scoped.templateType),
+    ...parseScopeTokens(scoped.supportedDocuments),
+    ...parseScopeTokens(scoped.supportedScopes),
+  ]);
+
+  if (!explicitTokens.size) return true;
+  return SCOPE_TOKENS[scope].some((token) => explicitTokens.has(token));
+};
 
 const toGradientColor = (value?: number[], fallback?: string) => {
   if (!value || value.length < 3) return fallback || '#0ea5e9';
@@ -69,7 +112,14 @@ export default function TemplatesScreen() {
     }
   }, [templates.length, refreshTemplates]);
 
-  const visibleTemplates = useMemo(() => templates, [templates]);
+  useEffect(() => {
+    setTierTab('all');
+  }, [scope]);
+
+  const visibleTemplates = useMemo(
+    () => templates.filter((template) => templateSupportsScope(template, scope)),
+    [templates, scope]
+  );
 
   const selectedTemplateId =
     scope === 'invoice' ? selectedInvoiceTemplate?.id : selectedReceiptTemplate?.id;
@@ -91,6 +141,14 @@ export default function TemplatesScreen() {
       { id: 'CUSTOM' as const, label: 'Custom', count: counts.CUSTOM },
     ];
   }, [visibleTemplates]);
+
+  useEffect(() => {
+    if (tierTab === 'all') return;
+    const activeTab = categoryTabs.find((tab) => tab.id === tierTab);
+    if (!activeTab || activeTab.count === 0) {
+      setTierTab('all');
+    }
+  }, [categoryTabs, tierTab]);
 
   const groupedTemplates = useMemo(() => {
     const filtered = visibleTemplates.filter((template) => {
@@ -164,8 +222,6 @@ export default function TemplatesScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <ModalHeader title="Templates" subtitle="Choose styles for invoices and receipts" />
-
       <View style={styles.scopeToggle}>
         {(['invoice', 'receipt'] as TemplateScope[]).map((item) => {
           const isActive = scope === item;
@@ -194,43 +250,48 @@ export default function TemplatesScreen() {
         })}
       </View>
 
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.tierTabsContent}
-        style={styles.tierTabsScroll}
-      >
-        {categoryTabs.map((tab) => {
-          const isActive = tierTab === tab.id;
-          return (
-            <TouchableOpacity
-              key={tab.id}
-              style={[
-                styles.tierTabButton,
-                {
-                  backgroundColor: isActive ? colors.primary500 : colors.surface,
-                  borderColor: isActive ? colors.primary500 : colors.border,
-                },
-              ]}
-              onPress={() => setTierTab(tab.id)}
-            >
-              <Text style={[styles.tierTabText, { color: isActive ? 'white' : colors.text }]}>
-                {tab.label}
-              </Text>
-              <View
+      <View style={styles.tierTabsWrapper}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={styles.tierTabsContent}
+          style={styles.tierTabsScroll}
+        >
+          {categoryTabs.map((tab) => {
+            const isActive = tierTab === tab.id;
+            return (
+              <TouchableOpacity
+                key={tab.id}
                 style={[
-                  styles.tierTabCount,
-                  { backgroundColor: isActive ? 'rgba(255,255,255,0.2)' : colors.card },
+                  styles.tierTabButton,
+                  {
+                    backgroundColor: isActive ? colors.primary500 : colors.surface,
+                    borderColor: isActive ? colors.primary500 : colors.border,
+                  },
                 ]}
+                onPress={() => setTierTab(tab.id)}
+                activeOpacity={0.85}
+                hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
               >
-                <Text style={[styles.tierTabCountText, { color: isActive ? 'white' : colors.textTertiary }]}>
-                  {tab.count}
+                <Text style={[styles.tierTabText, { color: isActive ? 'white' : colors.text }]}>
+                  {tab.label}
                 </Text>
-              </View>
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
+                <View
+                  style={[
+                    styles.tierTabCount,
+                    { backgroundColor: isActive ? 'rgba(255,255,255,0.2)' : colors.card },
+                  ]}
+                >
+                  <Text style={[styles.tierTabCountText, { color: isActive ? 'white' : colors.textTertiary }]}>
+                    {tab.count}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </View>
 
       <ScrollView
         showsVerticalScrollIndicator={false}
@@ -379,20 +440,27 @@ const styles = StyleSheet.create({
   scopeToggle: {
     flexDirection: 'row',
     paddingHorizontal: 16,
+    marginTop: 12,
     gap: 12,
-    marginBottom: 12,
+    marginBottom: 10,
+  },
+  tierTabsWrapper: {
+    paddingBottom: 8,
   },
   tierTabsScroll: {
     marginBottom: 2,
   },
   tierTabsContent: {
     paddingHorizontal: 16,
+    paddingRight: 24,
+    paddingVertical: 4,
     gap: 10,
   },
   tierTabButton: {
     borderWidth: 1,
     borderRadius: 999,
-    paddingVertical: 8,
+    minHeight: 38,
+    paddingVertical: 7,
     paddingHorizontal: 12,
     flexDirection: 'row',
     alignItems: 'center',
@@ -403,9 +471,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   tierTabCount: {
-    minWidth: 22,
-    height: 22,
-    borderRadius: 11,
+    minWidth: 24,
+    height: 24,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 6,

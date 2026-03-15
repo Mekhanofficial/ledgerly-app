@@ -629,8 +629,8 @@ export default function CreateInvoiceScreen() {
               </View>
             </ScrollView>
             
-            {customer && (
-              <>
+            {Boolean(customer) && (
+              <View>
                 <View style={styles.formGroup}>
                   <Text style={[styles.label, { color: colors.text }]}>Customer Email</Text>
                   <TextInput
@@ -663,7 +663,7 @@ export default function CreateInvoiceScreen() {
                     keyboardType="phone-pad"
                   />
                 </View>
-              </>
+              </View>
             )}
             
             <TouchableOpacity 
@@ -867,7 +867,7 @@ export default function CreateInvoiceScreen() {
               </View>
 
               {allowManualOverride ? (
-                <>
+                <View>
                   <View style={styles.toggleRow}>
                     <View style={styles.toggleTextGroup}>
                       <Text style={[styles.toggleTitle, { color: colors.text }]}>
@@ -928,7 +928,7 @@ export default function CreateInvoiceScreen() {
                       </Text>
                     </View>
                   )}
-                </>
+                </View>
               ) : (
                 <Text style={[styles.overrideHint, { color: colors.textTertiary }]}>
                   Manual tax overrides are disabled by your administrator.
@@ -959,7 +959,7 @@ export default function CreateInvoiceScreen() {
               </Text>
             )}
             {isRecurring && (
-              <>
+              <View>
                 <View style={styles.frequencyList}>
                   {RECURRING_FREQUENCY_OPTIONS.map((option) => {
                     const isSelected = recurringFrequency === option.value;
@@ -990,7 +990,7 @@ export default function CreateInvoiceScreen() {
                 <Text style={[styles.recurringSummaryText, { color: colors.textTertiary }]}>
                   Will repeat {recurringFrequency} starting {formatDate(issueDate)}.
                 </Text>
-              </>
+              </View>
             )}
           </View>
 
@@ -1254,7 +1254,7 @@ export default function CreateInvoiceScreen() {
                     <Text style={[styles.productSku, { color: colors.textTertiary, fontSize: isSmallScreen ? 10 : 12 }]}>
                       SKU: {item.sku}
                     </Text>
-                    {item.description && (
+                    {Boolean(item.description) && (
                       <Text style={[styles.productDescription, { color: colors.textTertiary, fontSize: isSmallScreen ? 10 : 12 }]}>
                         {item.description.length > 50 ? item.description.substring(0, 50) + '...' : item.description}
                       </Text>
